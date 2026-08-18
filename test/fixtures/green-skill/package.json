@@ -1,0 +1,7 @@
+{
+  "name": "summarize-skill",
+  "version": "1.0.0",
+  "description": "Local text summarizer skill",
+  "type": "module",
+  "main": "index.js"
+}

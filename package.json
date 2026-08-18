@@ -1,0 +1,49 @@
+{
+  "name": "skillvet",
+  "version": "0.1.0",
+  "description": "Supply-chain security scanner for AI agent skills and MCP servers.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "skillvet": "dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc && node -e \"import('node:fs').then((fs)=>fs.chmodSync('dist/cli.js',0o755))\"",
+    "test": "vitest run",
+    "lint": "tsc --noEmit",
+    "skillvet": "tsx src/cli.ts",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "keywords": [
+    "skill",
+    "mcp",
+    "security",
+    "scanner",
+    "supply-chain",
+    "agent",
+    "llm",
+    "cli"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  }
+}
