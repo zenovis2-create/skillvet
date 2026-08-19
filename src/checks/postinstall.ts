@@ -7,7 +7,9 @@ const HOOKS: { name: string; score: number }[] = [
   { name: "install", score: 35 },
   { name: "postinstall", score: 35 },
   { name: "prepublish", score: 35 },
+  { name: "preprepare", score: 35 },
   { name: "prepare", score: 35 },
+  { name: "postprepare", score: 35 },
   { name: "prepublishOnly", score: 20 },
   { name: "prepack", score: 20 },
   { name: "postpack", score: 20 },
@@ -29,6 +31,16 @@ export function checkPostinstall(ctx: ScanContext): CheckResult {
       file: "package.json",
       evidence: clip(cmd),
       score: hook.score,
+    });
+  }
+
+  const hasBindingGyp = ctx.files.some((file) => file.relPath === "binding.gyp");
+  if (hasBindingGyp && !scripts.install && !scripts.preinstall) {
+    findings.push({
+      check: "postinstall",
+      message: "binding.gyp triggers npm's implicit node-gyp rebuild install",
+      file: "binding.gyp",
+      score: 35,
     });
   }
 

@@ -43,7 +43,7 @@ export function checkSecrets(ctx: ScanContext): CheckResult {
           file: file.relPath,
           line: lineNo,
           evidence: clip(line),
-          score: 20,
+          score: 35,
         });
       }
     });

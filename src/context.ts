@@ -7,8 +7,8 @@ import {
 import { listFiles, readTextFiles } from "./walk.js";
 
 export async function loadContext(root: string): Promise<ScanContext> {
-  const files = await listFiles(root);
   const skippedFiles: ScanContext["skippedFiles"] = [];
+  const files = await listFiles(root, skippedFiles);
   const textFiles = await readTextFiles(files, skippedFiles);
   const pkg = await loadPackageJson(root);
   const skill = await loadSkillManifest(root);

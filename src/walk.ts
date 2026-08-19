@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { FileEntry, SkippedFile, TextFile } from "./types.js";
 
@@ -9,8 +9,6 @@ export const SKIP_DIRS = new Set([
   ".venv",
   "venv",
   "__pycache__",
-  ".skillvet-cache",
-  ".tmp",
 ]);
 
 const TEXT_EXT = new Set([
@@ -60,46 +58,69 @@ const TEXT_EXT = new Set([
   ".svelte",
   ".gradle",
   ".graphql",
+  ".gyp",
+  ".gypi",
 ]);
 
-const MAX_TEXT_BYTES = 1_000_000;
+export const MAX_TEXT_BYTES = 1_000_000;
 
 export function isTextPath(relPath: string): boolean {
   const ext = path.extname(relPath).toLowerCase();
   return TEXT_EXT.has(ext) || ext === "";
 }
 
-export async function listFiles(root: string): Promise<FileEntry[]> {
+export async function listFiles(
+  root: string,
+  skipped: SkippedFile[] = [],
+): Promise<FileEntry[]> {
   const out: FileEntry[] = [];
-  await walk(root, root, out);
+  await walk(root, root, out, skipped);
   return out.sort((a, b) => a.relPath.localeCompare(b.relPath));
 }
 
-async function walk(root: string, dir: string, out: FileEntry[]): Promise<void> {
+async function walk(
+  root: string,
+  dir: string,
+  out: FileEntry[],
+  skipped: SkippedFile[],
+): Promise<void> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch {
+    skipped.push({
+      relPath: toPosix(path.relative(root, dir)) || ".",
+      reason: "directory could not be read",
+    });
     return;
   }
   for (const entry of entries) {
-    if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue;
-      await walk(root, path.join(dir, entry.name), out);
+    const absPath = path.join(dir, entry.name);
+    const relPath = toPosix(path.relative(root, absPath));
+    let info;
+    try {
+      info = await lstat(absPath);
+    } catch {
+      skipped.push({ relPath, reason: "entry metadata could not be read" });
       continue;
     }
-    if (!entry.isFile()) continue;
-    const absPath = path.join(dir, entry.name);
-    let size = 0;
-    try {
-      size = (await stat(absPath)).size;
-    } catch {
+    if (info.isSymbolicLink()) {
+      skipped.push({ relPath, reason: "symbolic link was not inspected" });
+      continue;
+    }
+    if (info.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) continue;
+      await walk(root, absPath, out, skipped);
+      continue;
+    }
+    if (!info.isFile()) {
+      skipped.push({ relPath, reason: "non-regular filesystem entry was not inspected" });
       continue;
     }
     out.push({
       absPath,
-      size,
-      relPath: toPosix(path.relative(root, absPath)),
+      size: info.size,
+      relPath,
     });
   }
 }

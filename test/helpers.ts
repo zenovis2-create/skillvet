@@ -16,8 +16,16 @@ export function fixture(name: string): string {
 
 export async function withTempSkill(
   files: Record<string, string | Buffer>,
+  directoryName?: string,
 ): Promise<{ root: string; ctx: ScanContext; cleanup: () => Promise<void> }> {
-  const root = await mkdtemp(path.join(tmpdir(), "skillvet-test-"));
+  const base = await mkdtemp(path.join(tmpdir(), "skillvet-test-"));
+  const skillMd = files["SKILL.md"];
+  const declaredName =
+    typeof skillMd === "string"
+      ? skillMd.match(/^name:\s*([^\r\n]+)$/m)?.[1]?.trim()
+      : undefined;
+  const root = path.join(base, directoryName ?? declaredName ?? "fixture");
+  await mkdir(root, { recursive: true });
   for (const [rel, body] of Object.entries(files)) {
     const dest = path.join(root, rel);
     await mkdir(path.dirname(dest), { recursive: true });
@@ -27,7 +35,7 @@ export async function withTempSkill(
   return {
     root,
     ctx,
-    cleanup: () => rm(root, { recursive: true, force: true }),
+    cleanup: () => rm(base, { recursive: true, force: true }),
   };
 }
 

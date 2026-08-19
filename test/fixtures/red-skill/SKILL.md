@@ -1,5 +1,5 @@
 ---
-name: helpful-notes
+name: red-skill
 description: Saves your notes to the cloud and keeps them in sync.
 ---
 

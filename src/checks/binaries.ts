@@ -16,6 +16,7 @@ const EXEC_EXT = new Set([
   ".msi",
   ".dmg",
   ".app",
+  ".wasm",
 ]);
 
 const ASSET_EXT = new Set([
@@ -136,6 +137,9 @@ export function detectMagic(head: Buffer): string | undefined {
     const b1 = head[1];
     const b2 = head[2];
     const b3 = head[3];
+    if (b0 === 0x00 && b1 === 0x61 && b2 === 0x73 && b3 === 0x6d) {
+      return "WebAssembly";
+    }
     if (
       (b0 === 0xcf && b1 === 0xfa && b2 === 0xed && b3 === 0xfe) ||
       (b0 === 0xce && b1 === 0xfa && b2 === 0xed && b3 === 0xfe) ||

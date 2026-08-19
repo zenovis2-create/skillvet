@@ -1,6 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import path from "node:path";
 import type { McpManifest, PackageJson, SkillManifest } from "./types.js";
+import { MAX_TEXT_BYTES } from "./walk.js";
 
 export function parseFrontmatter(md: string): Record<string, unknown> {
   const match = md.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -110,26 +111,30 @@ export function parseSkillMarkdown(md: string): SkillManifest {
 }
 
 export function parseMcpJson(raw: unknown): boolean {
-  if (!raw || typeof raw !== "object") return false;
-  const obj = raw as Record<string, unknown>;
+  if (!isRecord(raw)) return false;
+  const obj = raw;
   const servers = obj.mcpServers ?? obj.servers;
-  if (servers && typeof servers === "object" && !Array.isArray(servers)) {
-    const entries = Object.values(servers as Record<string, unknown>);
+  if (isRecord(servers)) {
+    const entries = Object.values(servers);
     return entries.length > 0 && entries.every(isMcpServerConfig);
   }
   return false;
 }
 
 export function parseServerJson(raw: unknown): boolean {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
-  const server = raw as Record<string, unknown>;
+  if (!isRecord(raw)) return false;
+  const server = raw;
   return Boolean(
     typeof server.name === "string" &&
+      server.name.length >= 3 &&
+      server.name.length <= 200 &&
       /^[a-zA-Z0-9.-]+\/[a-zA-Z0-9._-]+$/.test(server.name) &&
       typeof server.description === "string" &&
       server.description.trim() &&
+      server.description.length <= 100 &&
       typeof server.version === "string" &&
-      server.version.trim(),
+      server.version.trim() &&
+      server.version.length <= 255,
   );
 }
 
@@ -139,9 +144,8 @@ export function packageMcpValidity(pkg: PackageJson): boolean | undefined {
   }
   if (pkg.mcp !== undefined) {
     const value = pkg.mcp;
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      const obj = value as Record<string, unknown>;
-      return parseMcpJson(obj) || isMcpServerConfig(obj);
+    if (isRecord(value)) {
+      return parseMcpJson(value) || isMcpServerConfig(value);
     }
     return false;
   }
@@ -151,7 +155,8 @@ export function packageMcpValidity(pkg: PackageJson): boolean | undefined {
 
 export async function readJsonIfExists(file: string): Promise<unknown | undefined> {
   try {
-    const text = await readFile(file, "utf8");
+    const text = await readUtf8IfSmall(file);
+    if (text === undefined) return undefined;
     return JSON.parse(text) as unknown;
   } catch {
     return undefined;
@@ -160,13 +165,14 @@ export async function readJsonIfExists(file: string): Promise<unknown | undefine
 
 export async function loadPackageJson(root: string): Promise<PackageJson | undefined> {
   const raw = await readJsonIfExists(path.join(root, "package.json"));
-  if (!raw || typeof raw !== "object") return undefined;
-  return raw as PackageJson;
+  if (!isRecord(raw)) return undefined;
+  return raw;
 }
 
 export async function loadSkillManifest(root: string): Promise<SkillManifest | undefined> {
   try {
-    const md = await readFile(path.join(root, "SKILL.md"), "utf8");
+    const md = await readUtf8IfSmall(path.join(root, "SKILL.md"));
+    if (md === undefined) return undefined;
     return parseSkillMarkdown(md);
   } catch {
     return undefined;
@@ -193,12 +199,31 @@ export async function loadMcpManifest(
 }
 
 function isMcpServerConfig(value: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const config = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const config = value;
   return Boolean(
     (typeof config.command === "string" && config.command.trim()) ||
       (typeof config.url === "string" && /^https?:\/\//i.test(config.url)),
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+async function readUtf8IfSmall(file: string): Promise<string | undefined> {
+  let handle;
+  try {
+    handle = await open(file, "r");
+    const buffer = Buffer.alloc(MAX_TEXT_BYTES + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > MAX_TEXT_BYTES) return undefined;
+    return buffer.subarray(0, bytesRead).toString("utf8");
+  } catch {
+    return undefined;
+  } finally {
+    await handle?.close();
+  }
 }
 
 function unique(items: string[]): string[] {

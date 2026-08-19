@@ -1,7 +1,8 @@
-import { spawn } from "node:child_process";
-import { mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { extractSafeTar, extractSafeZip, selectExtractedRoot } from "./archive.js";
+import { parseGitHubTarget, resolveGitHubTreeReference } from "./github.js";
 
 export interface ResolvedTarget {
   path: string;
@@ -9,14 +10,7 @@ export interface ResolvedTarget {
 }
 
 const DOWNLOAD_TIMEOUT_MS = 30_000;
-const COMMAND_TIMEOUT_MS = 30_000;
 const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
-const MAX_EXPANDED_BYTES = 100 * 1024 * 1024;
-const MAX_ARCHIVE_FILES = 10_000;
-const MAX_LISTING_BYTES = 5 * 1024 * 1024;
-
-const GITHUB =
-  /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)(?:\/(?:tree|blob)\/([^/]+)(?:\/(.*))?)?(?:\/)?(?:\.git)?$/i;
 
 export async function resolveTarget(target: string): Promise<ResolvedTarget> {
   if (/^https?:\/\//i.test(target)) {
@@ -38,20 +32,31 @@ async function fetchRemote(url: string): Promise<ResolvedTarget> {
   };
 
   try {
-    const gh = url.match(GITHUB);
+    const gh = parseGitHubTarget(url);
     if (gh) {
-      const owner = gh[1] ?? "";
-      const repo = (gh[2] ?? "").replace(/\.git$/i, "");
-      const ref = gh[3] || "HEAD";
-      const subdir = (gh[4] ?? "").replace(/\/$/, "");
-      const tarball = `https://codeload.github.com/${owner}/${repo}/tar.gz/${ref}`;
+      let ref = "HEAD";
+      let subdir = "";
+      if (gh.treeParts) {
+        const resolvedRef = await resolveGitHubTreeReference(
+          gh.owner,
+          gh.repo,
+          gh.treeParts,
+        );
+        ref = resolvedRef.sha;
+        subdir = resolvedRef.subdir;
+      }
+      const tarball = `https://codeload.github.com/${encodeURIComponent(gh.owner)}/${encodeURIComponent(gh.repo)}/tar.gz/${encodeURIComponent(ref)}`;
       const tarPath = path.join(dest, "src.tar.gz");
       await downloadToFile(tarball, tarPath);
-      await assertSafeTar(tarPath);
       const unpack = path.join(dest, "unpack");
       await mkdirp(unpack);
-      await run("tar", ["-xzf", tarPath, "-C", unpack]);
-      const root = await firstChildDir(unpack);
+      await extractSafeTar(tarPath, unpack);
+      const extractedRoot = await selectExtractedRoot(unpack);
+      let root = extractedRoot;
+      if (path.dirname(extractedRoot) === unpack) {
+        root = path.join(unpack, gh.repo);
+        await rename(extractedRoot, root);
+      }
       return {
         path: subdir ? await resolveContainedPath(root, subdir) : root,
         cleanup,
@@ -67,19 +72,17 @@ async function fetchRemote(url: string): Promise<ResolvedTarget> {
     if (isGzip(buf) || name.endsWith(".tar.gz") || name.endsWith(".tgz")) {
       const tarPath = path.join(dest, "src.tar.gz");
       await writeFile(tarPath, buf);
-      await assertSafeTar(tarPath);
       const unpack = path.join(dest, "unpack");
       await mkdirp(unpack);
-      await run("tar", ["-xzf", tarPath, "-C", unpack]);
-      return { path: await firstChildDir(unpack), cleanup };
+      await extractSafeTar(tarPath, unpack);
+      return { path: await selectExtractedRoot(unpack), cleanup };
     }
     if (isZip(buf) || name.endsWith(".zip")) {
       const zipPath = path.join(dest, "src.zip");
       await writeFile(zipPath, buf);
       const unpack = path.join(dest, "unpack");
       await mkdirp(unpack);
-      await assertSafeZip(zipPath);
-      await run("unzip", ["-q", zipPath, "-d", unpack]);
+      await extractSafeZip(zipPath, unpack);
       return { path: unpack, cleanup };
     }
     await writeFile(path.join(dest, name || "SKILL.md"), buf);
@@ -128,69 +131,6 @@ async function downloadToFile(url: string, dest: string): Promise<void> {
   await writeFile(dest, await readLimitedResponse(res, MAX_DOWNLOAD_BYTES));
 }
 
-async function assertSafeTar(tarPath: string): Promise<void> {
-  const listing = await run("tar", ["-tzf", tarPath], {
-    maxOutputBytes: MAX_LISTING_BYTES,
-  });
-  validateArchiveMembers(listing.split("\n").filter(Boolean));
-  const verbose = await run("tar", ["-tvzf", tarPath], {
-    maxOutputBytes: MAX_LISTING_BYTES,
-  });
-  validateArchiveListing(verbose, "tar");
-  await run("tar", ["-xOzf", tarPath], {
-    captureOutput: false,
-    maxOutputBytes: MAX_EXPANDED_BYTES,
-  });
-}
-
-async function assertSafeZip(zipPath: string): Promise<void> {
-  const listing = await run("unzip", ["-Z1", zipPath], {
-    maxOutputBytes: MAX_LISTING_BYTES,
-  });
-  validateArchiveMembers(listing.split("\n").filter(Boolean));
-  const verbose = await run("unzip", ["-Z", "-l", zipPath], {
-    maxOutputBytes: MAX_LISTING_BYTES,
-  });
-  validateArchiveListing(verbose, "zip");
-  await run("unzip", ["-p", zipPath], {
-    captureOutput: false,
-    maxOutputBytes: MAX_EXPANDED_BYTES,
-  });
-}
-
-export function validateArchiveMembers(members: string[]): void {
-  if (members.length > MAX_ARCHIVE_FILES) {
-    throw new Error(`refusing archive with more than ${MAX_ARCHIVE_FILES} entries`);
-  }
-  for (const member of members) {
-    const normalized = member.replaceAll("\\", "/");
-    const parts = normalized.split("/");
-    if (
-      normalized.startsWith("/") ||
-      /^[a-zA-Z]:\//.test(normalized) ||
-      normalized.includes("\0") ||
-      parts.includes("..")
-    ) {
-      throw new Error(`refusing archive member outside target: ${member}`);
-    }
-  }
-}
-
-export function validateArchiveListing(
-  verboseListing: string,
-  kind: string,
-): void {
-  for (const line of verboseListing.split("\n")) {
-    const type = line.trimStart()[0];
-    if (type === "l" || type === "h") {
-      throw new Error(`refusing ${kind} archive link: ${line.trim()}`);
-    }
-    if (type && "bcps".includes(type)) {
-      throw new Error(`refusing ${kind} archive special entry: ${line.trim()}`);
-    }
-  }
-}
-
 async function fetchWithTimeout(url: string): Promise<Response> {
   try {
     return await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
@@ -236,14 +176,6 @@ export async function readLimitedResponse(
   return Buffer.concat(chunks, total);
 }
 
-async function firstChildDir(dir: string): Promise<string> {
-  const { readdir } = await import("node:fs/promises");
-  const entries = await readdir(dir, { withFileTypes: true });
-  const dirs = entries.filter((e) => e.isDirectory());
-  if (dirs.length === 1 && dirs[0]) return path.join(dir, dirs[0].name);
-  return dir;
-}
-
 async function mkdirp(dir: string): Promise<void> {
   const { mkdir } = await import("node:fs/promises");
   await mkdir(dir, { recursive: true });
@@ -265,52 +197,4 @@ function guessName(url: string): string {
   } catch {
     return "download";
   }
-}
-
-interface RunOptions {
-  captureOutput?: boolean;
-  maxOutputBytes?: number;
-  timeoutMs?: number;
-}
-
-function run(cmd: string, args: string[], options: RunOptions = {}): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
-    const captureOutput = options.captureOutput ?? true;
-    const maxOutputBytes = options.maxOutputBytes ?? MAX_LISTING_BYTES;
-    const timeoutMs = options.timeoutMs ?? COMMAND_TIMEOUT_MS;
-    let out = "";
-    let err = "";
-    let outBytes = 0;
-    let failure: Error | undefined;
-    const timer = setTimeout(() => {
-      failure = new Error(`${cmd} timed out after ${timeoutMs}ms`);
-      child.kill("SIGKILL");
-    }, timeoutMs);
-    child.stdout.on("data", (c: Buffer) => {
-      outBytes += c.length;
-      if (outBytes > maxOutputBytes && !failure) {
-        failure = new Error(`${cmd} output exceeds ${maxOutputBytes} bytes`);
-        child.kill("SIGKILL");
-        return;
-      }
-      if (captureOutput) out += c.toString();
-    });
-    child.stderr.on("data", (c: Buffer) => {
-      if (err.length < MAX_LISTING_BYTES) err += c.toString();
-    });
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (failure) {
-        reject(failure);
-        return;
-      }
-      if (code === 0) resolve(out);
-      else reject(new Error(`${cmd} ${args.join(" ")} failed (${code}): ${err.trim()}`));
-    });
-  });
 }

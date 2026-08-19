@@ -33,10 +33,10 @@ npx skillvet ./my-skill --strict
 | --- | --- |
 | **phone-home** | `http(s)` / `ws(s)` / IPC URLs in source and `SKILL.md`, plus `child_process`, `eval(`, `Function(` |
 | **secret-access** | `~/.ssh`, `~/.aws`, `~/.config`, `*_TOKEN`, `*_KEY`, `GITHUB_TOKEN`, including agent instructions |
-| **postinstall** | npm install/package lifecycle hooks such as `preinstall`, `postinstall`, `prepare`, `prepublish`, and `prepack` |
+| **postinstall** | npm install/package lifecycle hooks, including `preprepare` / `postprepare`, plus implicit `binding.gyp` node-gyp builds |
 | **obfuscation** | `Buffer.from(..., 'base64')`, `atob`, hex-string `eval`, minified sources |
-| **binaries** | executables and ELF / PE / Mach-O magic, even when disguised with an asset extension |
-| **scan-coverage** | source-shaped files that could not be inspected, including files over 1 MB |
+| **binaries** | executables and ELF / PE / Mach-O / WebAssembly magic, even when disguised with an asset extension |
+| **scan-coverage** | source-shaped files and filesystem entries that could not be inspected, including files over 1 MB and symbolic links |
 | **manifest** | Agent Skills name/description rules and MCP `server.json`, `mcp.json`, or `package.json` entries |
 
 Declare hosts the skill says it needs to call:
@@ -50,7 +50,7 @@ allowed-domains:
 ---
 ```
 
-Declarations are attacker-controlled metadata, so they lower a host finding to 5 points but do not hide it. `package.json` `homepage` and `repository` values are never treated as network policy.
+Declarations are attacker-controlled metadata, so a declared host remains a 35-point **YELLOW** finding instead of being hidden. Secret access combined with any outbound host is scored **RED**. `package.json` `homepage` and `repository` values are never treated as network policy.
 
 ## Scoring
 
@@ -94,7 +94,7 @@ kind skill
 check            pts   status   notes
 ──────────────── ───   ──────   ────────────────────────────────────────────
 phone-home       0     GREEN    —
-secret-access    +40   YELLOW   reads ~/.ssh  (+1 more)
+secret-access    +45   YELLOW   reads ~/.ssh  (+1 more)
 postinstall      0     GREEN    —
 obfuscation      0     GREEN    —
 binaries         0     GREEN    —
@@ -105,7 +105,7 @@ findings
   • reads ~/.ssh  index.js:5
   • references GITHUB_TOKEN  index.js:6
 
-VERDICT  YELLOW   40/100
+VERDICT  YELLOW   45/100
 ```
 
 ### RED — phones home + postinstall hook
@@ -159,7 +159,9 @@ It will not catch a clever enough adversary. It will catch the stuff that is alr
 
 ## Security model
 
-Remote downloads are capped at 25 MB, archive contents at 100 MB and 10,000 entries, and network/archive commands at 30 seconds. Archive paths and links are rejected before extraction. GitHub tree subdirectories are resolved through their real paths and must remain under the extracted repository root.
+Remote downloads are capped at 25 MB, archive contents at 100 MB and 10,000 entries, and network/archive commands at 30 seconds. Archive paths and links are rejected before extraction. GitHub tree refs are resolved through GitHub's API to immutable commit SHAs, including branch names containing `/`; subdirectories must remain under the extracted repository root. Generic tar archives with mixed top-level entries are scanned from the full extraction root.
+
+Remote tar/ZIP scans require the host `tar` and `unzip` commands (macOS or Linux).
 
 skillvet is a static heuristic scanner, not a sandbox or proof of safety. Review findings and source before installation. See [SECURITY.md](./SECURITY.md) for vulnerability reporting.
 

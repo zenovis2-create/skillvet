@@ -46,6 +46,8 @@ const CODE_EXT = new Set([
   ".vue",
   ".svelte",
   ".gradle",
+  ".gyp",
+  ".gypi",
 ]);
 
 const DOC_FILES = new Set(["readme.md", "changelog.md", "license", "license.md"]);
@@ -174,7 +176,7 @@ function collectUrls(
       file: file.relPath,
       line: lineNo,
       evidence: clip(raw),
-      score: declared ? 5 : 40,
+      score: declared ? 35 : 40,
     });
   }
 }

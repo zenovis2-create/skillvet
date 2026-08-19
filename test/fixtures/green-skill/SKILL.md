@@ -1,5 +1,5 @@
 ---
-name: summarize
+name: green-skill
 description: Turn a block of text into a short local summary. No network, no secrets.
 ---
 

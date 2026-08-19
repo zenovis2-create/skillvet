@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { CheckResult, Finding, ScanContext } from "../types.js";
 
 export function checkManifest(ctx: ScanContext): CheckResult {
@@ -27,7 +28,14 @@ export function checkManifest(ctx: ScanContext): CheckResult {
           check: "manifest",
           message: "SKILL.md frontmatter has an invalid name",
           file: "SKILL.md",
-          score: 20,
+          score: 30,
+        });
+      } else if (ctx.skill.name !== path.basename(ctx.root)) {
+        findings.push({
+          check: "manifest",
+          message: "SKILL.md name must match its parent directory",
+          file: "SKILL.md",
+          score: 30,
         });
       }
       if (!isValidSkillDescription(ctx.skill.description)) {
@@ -35,7 +43,7 @@ export function checkManifest(ctx: ScanContext): CheckResult {
           check: "manifest",
           message: "SKILL.md frontmatter has an invalid description",
           file: "SKILL.md",
-          score: 20,
+          score: 30,
         });
       }
     }
