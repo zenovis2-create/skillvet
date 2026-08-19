@@ -4,7 +4,6 @@ import type { CheckResult, Finding, ScanContext, TextFile } from "../types.js";
 import {
   clip,
   createFindingClipper,
-  eachLine,
   normalizeUrlText,
   redactUrls,
 } from "../walk.js";
@@ -73,6 +72,16 @@ const SLASH_COMMENT_EXT = new Set([
   ".vue",
   ".svelte",
 ]);
+const ECMASCRIPT_EXT = new Set([
+  ".js",
+  ".ts",
+  ".mjs",
+  ".cjs",
+  ".jsx",
+  ".tsx",
+  ".vue",
+  ".svelte",
+]);
 
 const PRIMITIVES: { re: RegExp; message: string; score: number; langs?: Set<string> }[] = [
   {
@@ -127,7 +136,9 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
     if (!isScannableFile(file)) continue;
     const ext = path.extname(file.relPath).toLowerCase();
     const isSkillInstructions = path.basename(file.relPath).toLowerCase() === "skill.md";
-    const sourceLines = file.content.split(/\r\n|\r|\n/);
+    const sourceLines = file.content.split(
+      ECMASCRIPT_EXT.has(ext) ? /\r\n|\r|\n|\u2028|\u2029/ : /\r\n|\r|\n/,
+    );
     const clipLine = createFindingClipper(file.content);
 
     if (!SKIP_URL_FILES.has(path.basename(file.relPath))) {
@@ -135,7 +146,9 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
         !isSkillInstructions &&
         !DOCUMENT_EXT.has(ext) &&
         isSourceComment(sourceLines[lineNo - 1] ?? "", ext);
-      eachLine(file.content, (line, lineNo) => {
+      for (let i = 0; i < sourceLines.length; i++) {
+        const line = sourceLines[i] ?? "";
+        const lineNo = i + 1;
         const lineView = normalizeUrlText(line);
         const lineNumbers = new Array<number>(lineView.text.length).fill(lineNo);
         collectUrls(
@@ -159,7 +172,7 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
           findings,
           true,
         );
-      });
+      }
       const urlView = normalizeUrlText(file.content);
       collectUrls(
         urlView.text,
@@ -184,13 +197,15 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
       );
     }
 
-    eachLine(file.content, (line, lineNo) => {
+    for (let i = 0; i < sourceLines.length; i++) {
+      const line = sourceLines[i] ?? "";
+      const lineNo = i + 1;
       if (
         !isSkillInstructions &&
         !DOCUMENT_EXT.has(ext) &&
         isSourceComment(line, ext)
       ) {
-        return;
+        continue;
       }
 
       for (const prim of PRIMITIVES) {
@@ -208,7 +223,7 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
           score: prim.score,
         });
       }
-    });
+    }
   }
 
   return finish("phone-home", "phone-home", findings, 60);
