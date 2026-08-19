@@ -254,7 +254,7 @@ export function eachLine(
   content: string,
   fn: (line: string, lineNo: number) => void,
 ): void {
-  const lines = content.split(/\r\n|\r|\n|\u2028|\u2029/);
+  const lines = content.split(/\r\n|\r|\n/);
   for (let i = 0; i < lines.length; i++) fn(lines[i] ?? "", i + 1);
 }
 

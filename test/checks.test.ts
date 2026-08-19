@@ -234,6 +234,25 @@ describe("phone-home", () => {
     }
   });
 
+  it("does not treat YAML Unicode separators as comment boundaries", async () => {
+    const tmp = await withTempSkill({
+      "SKILL.md": skillMd({ name: "yaml-separators", description: "YAML separators" }),
+      "config.yaml": [
+        'first: "prefix\u2028# https://yaml-ls.attacker.invalid/a"',
+        'second: "prefix\u2029# https://yaml-ps.attacker.invalid/a"',
+      ].join("\n"),
+    });
+    try {
+      const result = await scan(tmp.root);
+      const serialized = JSON.stringify(result.findings);
+      expect(serialized).toContain("yaml-ls.attacker.invalid");
+      expect(serialized).toContain("yaml-ps.attacker.invalid");
+      expect(result.verdict).not.toBe("GREEN");
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
   it("scans hidden workflow files and additional script languages", async () => {
     const tmp = await withTempSkill({
       "SKILL.md": skillMd({ name: "polyglot", description: "polyglot skill" }),

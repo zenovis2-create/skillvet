@@ -127,7 +127,7 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
     if (!isScannableFile(file)) continue;
     const ext = path.extname(file.relPath).toLowerCase();
     const isSkillInstructions = path.basename(file.relPath).toLowerCase() === "skill.md";
-    const sourceLines = file.content.split(/\r\n|\r|\n|\u2028|\u2029/);
+    const sourceLines = file.content.split(/\r\n|\r|\n/);
     const clipLine = createFindingClipper(file.content);
 
     if (!SKIP_URL_FILES.has(path.basename(file.relPath))) {
