@@ -16,9 +16,39 @@ const CODE_EXT = new Set([
   ".bash",
   ".zsh",
   ".json",
+  ".yml",
+  ".yaml",
+  ".toml",
+  ".xml",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".properties",
+  ".ps1",
+  ".fish",
+  ".rb",
+  ".php",
+  ".go",
+  ".rs",
+  ".java",
+  ".kt",
+  ".kts",
+  ".swift",
+  ".c",
+  ".h",
+  ".cpp",
+  ".hpp",
+  ".cs",
+  ".scala",
+  ".lua",
+  ".pl",
+  ".r",
+  ".vue",
+  ".svelte",
+  ".gradle",
 ]);
 
-const DOC_FILES = new Set(["skill.md", "readme.md", "changelog.md", "license", "license.md"]);
+const DOC_FILES = new Set(["readme.md", "changelog.md", "license", "license.md"]);
 
 const URL_RE = /(?:https?|wss?):\/\/[^\s"'`\\)<>]+/gi;
 const IPC_RE = /\b(?:ipc|unix|npipe):\/\/[^\s"'`\\)<>]+/gi;
@@ -73,7 +103,7 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
   const seenPrim = new Set<string>();
 
   for (const file of ctx.textFiles) {
-    if (!isCodeFile(file.relPath)) continue;
+    if (!isScannableFile(file)) continue;
     const ext = path.extname(file.relPath).toLowerCase();
 
     eachLine(file.content, (line, lineNo) => {
@@ -135,24 +165,26 @@ function collectUrls(
     }
     const host = hostFromUrl(raw);
     if (!host) continue;
-    if (allowed.has(host)) continue;
     if (seenHosts.has(host)) continue;
     seenHosts.add(host);
+    const declared = allowed.has(host);
     findings.push({
       check: "phone-home",
-      message: `undeclared outbound host ${host}`,
+      message: `${declared ? "declared" : "undeclared"} outbound host ${host}`,
       file: file.relPath,
       line: lineNo,
       evidence: clip(raw),
-      score: 40,
+      score: declared ? 5 : 40,
     });
   }
 }
 
-function isCodeFile(relPath: string): boolean {
-  const base = path.basename(relPath).toLowerCase();
+function isScannableFile(file: TextFile): boolean {
+  const base = path.basename(file.relPath).toLowerCase();
   if (DOC_FILES.has(base)) return false;
-  return CODE_EXT.has(path.extname(relPath).toLowerCase());
+  if (base === "skill.md") return true;
+  const ext = path.extname(file.relPath).toLowerCase();
+  return CODE_EXT.has(ext) || (ext === "" && file.content.startsWith("#!"));
 }
 
 function stripTrailingPunct(s: string): string {

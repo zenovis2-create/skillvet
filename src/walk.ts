@@ -1,11 +1,10 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import type { FileEntry, TextFile } from "./types.js";
+import type { FileEntry, SkippedFile, TextFile } from "./types.js";
 
 export const SKIP_DIRS = new Set([
   "node_modules",
   ".git",
-  "dist",
   "coverage",
   ".venv",
   "venv",
@@ -32,12 +31,42 @@ const TEXT_EXT = new Set([
   ".toml",
   ".txt",
   ".html",
+  ".css",
+  ".xml",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".properties",
+  ".ps1",
+  ".fish",
+  ".rb",
+  ".php",
+  ".go",
+  ".rs",
+  ".java",
+  ".kt",
+  ".kts",
+  ".swift",
+  ".c",
+  ".h",
+  ".cpp",
+  ".hpp",
+  ".cs",
+  ".scala",
+  ".lua",
+  ".pl",
+  ".r",
+  ".vue",
+  ".svelte",
+  ".gradle",
+  ".graphql",
 ]);
 
 const MAX_TEXT_BYTES = 1_000_000;
 
 export function isTextPath(relPath: string): boolean {
-  return TEXT_EXT.has(path.extname(relPath).toLowerCase());
+  const ext = path.extname(relPath).toLowerCase();
+  return TEXT_EXT.has(ext) || ext === "";
 }
 
 export async function listFiles(root: string): Promise<FileEntry[]> {
@@ -54,7 +83,6 @@ async function walk(root: string, dir: string, out: FileEntry[]): Promise<void> 
     return;
   }
   for (const entry of entries) {
-    if (entry.name.startsWith(".") && entry.name !== ".env") continue;
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;
       await walk(root, path.join(dir, entry.name), out);
@@ -76,18 +104,31 @@ async function walk(root: string, dir: string, out: FileEntry[]): Promise<void> 
   }
 }
 
-export async function readTextFiles(files: FileEntry[]): Promise<TextFile[]> {
+export async function readTextFiles(
+  files: FileEntry[],
+  skipped: SkippedFile[] = [],
+): Promise<TextFile[]> {
   const out: TextFile[] = [];
   for (const file of files) {
     if (!isTextPath(file.relPath)) continue;
-    if (file.size > MAX_TEXT_BYTES) continue;
+    if (file.size > MAX_TEXT_BYTES) {
+      skipped.push({
+        relPath: file.relPath,
+        reason: `text file is too large to inspect (${file.size} bytes)`,
+      });
+      continue;
+    }
     let buf: Buffer;
     try {
       buf = await readFile(file.absPath);
     } catch {
+      skipped.push({ relPath: file.relPath, reason: "text file could not be read" });
       continue;
     }
-    if (buf.includes(0)) continue;
+    if (buf.includes(0)) {
+      skipped.push({ relPath: file.relPath, reason: "text-shaped file contains NUL bytes" });
+      continue;
+    }
     out.push({
       relPath: file.relPath,
       absPath: file.absPath,

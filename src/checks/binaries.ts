@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import path from "node:path";
 import type { CheckResult, FileEntry, Finding, ScanContext } from "../types.js";
 import { finish } from "./manifest.js";
@@ -86,26 +86,37 @@ export async function checkBinariesAsync(ctx: ScanContext): Promise<CheckResult>
 export async function classifyBinary(file: FileEntry): Promise<string | undefined> {
   const base = path.basename(file.relPath).toLowerCase();
   const ext = path.extname(file.relPath).toLowerCase();
-  if (TEXT_NAMES.has(base) || ASSET_EXT.has(ext)) return undefined;
+  if (TEXT_NAMES.has(base)) return undefined;
 
   if (EXEC_EXT.has(ext)) {
     return `executable-shaped file (${ext})`;
   }
 
-  let head: Buffer;
-  try {
-    head = (await readFile(file.absPath)).subarray(0, 8);
-  } catch {
-    return undefined;
-  }
+  const head = await readHead(file.absPath);
+  if (!head) return undefined;
 
   const magic = detectMagic(head);
   if (magic) return `binary blob (${magic})`;
 
+  if (ASSET_EXT.has(ext)) return undefined;
   if (!ext && looksBinary(head)) {
     return "extensionless binary blob";
   }
   return undefined;
+}
+
+async function readHead(file: string): Promise<Buffer | undefined> {
+  let handle;
+  try {
+    handle = await open(file, "r");
+    const head = Buffer.alloc(8);
+    const { bytesRead } = await handle.read(head, 0, head.length, 0);
+    return head.subarray(0, bytesRead);
+  } catch {
+    return undefined;
+  } finally {
+    await handle?.close();
+  }
 }
 
 export function detectMagic(head: Buffer): string | undefined {

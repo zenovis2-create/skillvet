@@ -47,6 +47,7 @@ describe("report", () => {
       "postinstall",
       "obfuscation",
       "binaries",
+      "scan-coverage",
       "manifest",
     ]);
   });

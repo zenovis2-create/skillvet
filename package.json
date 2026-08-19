@@ -1,8 +1,16 @@
 {
   "name": "skillvet",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Supply-chain security scanner for AI agent skills and MCP servers.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zenovis2-create/skillvet.git"
+  },
+  "homepage": "https://github.com/zenovis2-create/skillvet#readme",
+  "bugs": {
+    "url": "https://github.com/zenovis2-create/skillvet/issues"
+  },
   "type": "module",
   "bin": {
     "skillvet": "dist/cli.js"
@@ -18,10 +26,11 @@
   "files": [
     "dist",
     "README.md",
+    "SECURITY.md",
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "tsc && node -e \"import('node:fs').then((fs)=>fs.chmodSync('dist/cli.js',0o755))\"",
@@ -42,9 +51,9 @@
     "cli"
   ],
   "devDependencies": {
-    "@types/node": "^22.15.3",
-    "tsx": "^4.19.4",
-    "typescript": "^5.8.3",
-    "vitest": "^3.1.2"
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   }
 }

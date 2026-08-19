@@ -3,6 +3,7 @@ import { checkManifest } from "./checks/manifest.js";
 import { checkObfuscation } from "./checks/obfuscation.js";
 import { checkPhoneHome } from "./checks/phone-home.js";
 import { checkPostinstall } from "./checks/postinstall.js";
+import { checkScanCoverage } from "./checks/scan-coverage.js";
 import { checkSecrets } from "./checks/secrets.js";
 import { loadContext } from "./context.js";
 import { resolveTarget } from "./resolve.js";
@@ -26,6 +27,7 @@ export async function scan(target: string, options: ScanOptions = {}): Promise<S
       checkPostinstall(ctx),
       checkObfuscation(ctx),
       await checkBinariesAsync(ctx),
+      checkScanCoverage(ctx),
       checkManifest(ctx),
     ];
     const findings = checks.flatMap((c) => c.findings);

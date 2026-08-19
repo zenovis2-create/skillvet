@@ -23,7 +23,7 @@ const PATTERNS: { re: RegExp; message: string; family: string }[] = [
   { family: "token", re: /os\.getenv\(\s*[`'"][A-Z0-9_]*(?:TOKEN|KEY)[`'"]/, message: "calls os.getenv for a secret" },
 ];
 
-const SKIP = new Set(["skill.md", "readme.md", "changelog.md"]);
+const SKIP = new Set(["readme.md", "changelog.md"]);
 
 export function checkSecrets(ctx: ScanContext): CheckResult {
   const findings: Finding[] = [];

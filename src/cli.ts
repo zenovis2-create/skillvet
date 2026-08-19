@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { helpText, parseArgs, type CliArgs } from "./args.js";
@@ -51,16 +52,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 }
 
-function isDirectRun(): boolean {
-  const entry = process.argv[1];
+export function isDirectRun(entry = process.argv[1]): boolean {
   if (!entry) return false;
   try {
-    return fileURLToPath(import.meta.url) === path.resolve(entry);
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(path.resolve(entry));
   } catch {
     return false;
   }
 }
 
 if (isDirectRun()) {
-  main().then((code) => process.exit(code));
+  void main().then((code) => {
+    process.exitCode = code;
+  });
 }

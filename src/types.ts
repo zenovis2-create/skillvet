@@ -1,4 +1,4 @@
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.1";
 
 export const SCORE_YELLOW = 30;
 export const SCORE_RED = 70;
@@ -51,6 +51,11 @@ export interface FileEntry {
   size: number;
 }
 
+export interface SkippedFile {
+  relPath: string;
+  reason: string;
+}
+
 export interface SkillManifest {
   name?: string;
   description?: string;
@@ -86,4 +91,5 @@ export interface ScanContext {
   pkg?: PackageJson;
   files: FileEntry[];
   textFiles: TextFile[];
+  skippedFiles: SkippedFile[];
 }
