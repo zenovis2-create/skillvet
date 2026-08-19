@@ -213,17 +213,21 @@ describe("phone-home", () => {
         "b?q=NEWLINELEAK#F`; process.env.GITHUB_TOKEN;",
         "const fourth = `https:\r",
         "//cr-user:cr-pass@cr.attacker.invalid/a`;",
+        'const fifth = "h' + "\\",
+        'ttps://continuation-user:continuation-pass@continuation.attacker.invalid/a?q=CONTINUATIONLEAK#F";',
+        'const sixth = "h' + "\\\u2028" +
+          'ttps://separator-user:separator-pass@separator.attacker.invalid/a";',
       ].join("\n"),
     });
     try {
       const result = await scan(tmp.root);
       const serialized = JSON.stringify(result.findings);
-      for (const host of ["newline", "colon", "suffix", "cr"]) {
+      for (const host of ["newline", "colon", "suffix", "cr", "continuation", "separator"]) {
         expect(serialized).toContain(`${host}.attacker.invalid`);
       }
       expect(result.verdict).not.toBe("GREEN");
       expect(serialized).not.toMatch(
-        /newline-user|newline-pass|colon-user|colon-pass|suffix-user|suffix-pass|cr-user|cr-pass|NEWLINELEAK|#F/,
+        /newline-user|newline-pass|colon-user|colon-pass|suffix-user|suffix-pass|cr-user|cr-pass|continuation-user|continuation-pass|separator-user|separator-pass|NEWLINELEAK|CONTINUATIONLEAK|#F/,
       );
     } finally {
       await tmp.cleanup();

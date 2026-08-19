@@ -254,7 +254,7 @@ export function eachLine(
   content: string,
   fn: (line: string, lineNo: number) => void,
 ): void {
-  const lines = content.split(/\r\n|\r|\n/);
+  const lines = content.split(/\r\n|\r|\n|\u2028|\u2029/);
   for (let i = 0; i < lines.length; i++) fn(lines[i] ?? "", i + 1);
 }
 
@@ -275,6 +275,14 @@ export function normalizeUrlText(value: string): {
   const lineNumbers: number[] = [];
   for (let i = 0; i < value.length; i++) {
     const char = value[i] ?? "";
+    const isLineTerminator =
+      char === "\r" || char === "\n" || char === "\u2028" || char === "\u2029";
+    const isLineContinuation =
+      isLineTerminator && value[i - 1] === "\\" && text.endsWith("\\");
+    if (isLineContinuation) {
+      text = text.slice(0, -1);
+      lineNumbers.pop();
+    }
     if (char === "\t") continue;
     if (char === "\r") {
       if (value[i + 1] !== "\n") lineNo += 1;
@@ -284,8 +292,13 @@ export function normalizeUrlText(value: string): {
       lineNo += 1;
       continue;
     }
+    if ((char === "\u2028" || char === "\u2029") && isLineContinuation) {
+      lineNo += 1;
+      continue;
+    }
     text += char;
     lineNumbers.push(lineNo);
+    if (char === "\u2028" || char === "\u2029") lineNo += 1;
   }
   return { text, lineNumbers };
 }
