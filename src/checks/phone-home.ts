@@ -5,6 +5,7 @@ import { clip, eachLine } from "../walk.js";
 import { finish } from "./manifest.js";
 
 const DOC_FILES = new Set(["readme.md", "changelog.md", "license", "license.md"]);
+const DOCUMENT_EXT = new Set(["", ".md", ".mdx", ".txt"]);
 
 const URL_RE = /(?:https?|wss?):\/\/[^\s"'`\\)<>]+/gi;
 const IPC_RE = /\b(?:ipc|unix|npipe):\/\/[^\s"'`\\)<>]+/gi;
@@ -66,6 +67,7 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
     eachLine(file.content, (line, lineNo) => {
       if (
         !isSkillInstructions &&
+        !DOCUMENT_EXT.has(ext) &&
         (line.trimStart().startsWith("//") || line.trimStart().startsWith("#"))
       ) {
         return;

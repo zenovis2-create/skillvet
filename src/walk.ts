@@ -204,10 +204,17 @@ export async function readTextFiles(
         skipped.push({ relPath: file.relPath, reason: "text-shaped file contains NUL bytes" });
         continue;
       }
+      if (!looksTextual(content)) {
+        skipped.push({
+          relPath: file.relPath,
+          reason: "text-shaped file is not valid UTF-8 or contains binary control bytes",
+        });
+        continue;
+      }
       out.push({
         relPath: file.relPath,
         absPath: file.absPath,
-        content: content.toString("utf8"),
+        content: UTF8_DECODER.decode(content),
       });
     } catch {
       skipped.push({ relPath: file.relPath, reason: "text file could not be read" });

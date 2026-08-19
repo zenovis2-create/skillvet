@@ -85,12 +85,34 @@ export function stripQuotes(s: string): string {
 function parseYamlScalar(value: string): unknown {
   const stripped = stripQuotes(value);
   if (stripped !== value.trim()) return stripped;
+  if (stripped.startsWith("{") && stripped.endsWith("}")) {
+    return parseFlowMapping(stripped);
+  }
+  if (stripped.startsWith("[") && stripped.endsWith("]")) {
+    return stripped
+      .slice(1, -1)
+      .split(",")
+      .map((item) => parseYamlScalar(item.trim()));
+  }
   if (/^(?:true|false)$/i.test(stripped)) return stripped.toLowerCase() === "true";
   if (/^(?:null|~)$/i.test(stripped)) return null;
   if (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(stripped)) {
     return Number(stripped);
   }
   return stripped;
+}
+
+function parseFlowMapping(value: string): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  const body = value.slice(1, -1).trim();
+  if (!body) return result;
+  for (const item of body.split(",")) {
+    const separator = item.indexOf(":");
+    const key = stripQuotes(item.slice(0, separator)).trim().toLowerCase();
+    if (separator <= 0 || !key) return { "": null };
+    result[key] = parseYamlScalar(item.slice(separator + 1).trim());
+  }
+  return result;
 }
 
 export function hostFromUrl(raw: string): string | undefined {
@@ -309,11 +331,14 @@ function isAllowedVersion(value: string): boolean {
   if (new RegExp(`^${selectorVersion}(?:\\s+${selectorVersion})+$`).test(version)) {
     return false;
   }
-  const versionCore = (version.split(/[+-]/, 1)[0] ?? "").replace(/^v(?=\d)/i, "");
-  const components = versionCore.split(".");
+  const dottedSelector = new RegExp(
+    "^((?:v?\\d+|[xX*])(?:\\.(?:\\d+|[xX*]))+)" +
+      "(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+  );
+  const dottedMatch = dottedSelector.exec(version);
   return !(
-    components.every((component) => /^\d+$|^[xX*]$/.test(component)) &&
-    components.some((component) => /^[xX*]$/.test(component))
+    dottedMatch &&
+    /(?:^|\.)[xX*](?:\.|$)/.test((dottedMatch[1] ?? "").replace(/^v(?=\d)/i, ""))
   );
 }
 
