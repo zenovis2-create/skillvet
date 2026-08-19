@@ -106,6 +106,8 @@ describe("remote archive limits", () => {
     for (const target of [
       "https:user:pass@example.com/a?token=secret#part",
       "http:/user:pass@example.com/a?token=secret#part",
+      " \thttps:user:pass@example.com/a?token=secret#part",
+      "h\tttps:user:pass@example.com/a?token=secret#part",
     ]) {
       let message = "";
       try {

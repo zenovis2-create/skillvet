@@ -173,7 +173,7 @@ export async function readTextFiles(
       if (!knownText) {
         const probe = Buffer.alloc(Math.min(TEXT_PROBE_BYTES, current.size));
         const { bytesRead } = await handle.read(probe, 0, probe.length, 0);
-        if (!looksTextual(probe.subarray(0, bytesRead))) {
+        if (!looksTextual(probe.subarray(0, bytesRead), true)) {
           if (!isKnownBinaryAssetPath(file.relPath)) {
             skipped.push({
               relPath: file.relPath,
@@ -225,11 +225,15 @@ export async function readTextFiles(
   return out;
 }
 
-function looksTextual(content: Buffer): boolean {
+function looksTextual(content: Buffer, allowIncompleteTail = false): boolean {
   if (content.length === 0) return true;
   if (content.includes(0)) return false;
   try {
-    UTF8_DECODER.decode(content);
+    if (allowIncompleteTail) {
+      new TextDecoder("utf-8", { fatal: true }).decode(content, { stream: true });
+    } else {
+      UTF8_DECODER.decode(content);
+    }
   } catch {
     return false;
   }

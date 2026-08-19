@@ -5,7 +5,7 @@ import { clip, eachLine } from "../walk.js";
 import { finish } from "./manifest.js";
 
 const DOC_FILES = new Set(["readme.md", "changelog.md", "license", "license.md"]);
-const DOCUMENT_EXT = new Set(["", ".md", ".mdx", ".txt"]);
+const DOCUMENT_EXT = new Set(["", ".md", ".markdown", ".mdx", ".txt"]);
 
 const URL_RE = /(?:https?|wss?):\/\/[^\s"'`\\)<>]+/gi;
 const IPC_RE = /\b(?:ipc|unix|npipe):\/\/[^\s"'`\\)<>]+/gi;

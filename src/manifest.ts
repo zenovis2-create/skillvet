@@ -12,6 +12,7 @@ export function parseFrontmatter(md: string): Record<string, unknown> {
 
 export function parseSimpleYaml(src: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
+  const anchors = new Map<string, unknown>();
   let currentKey: string | null = null;
   let currentArr: string[] | null = null;
 
@@ -35,7 +36,7 @@ export function parseSimpleYaml(src: string): Record<string, unknown> {
       result[currentKey] = map;
       const key = (nestedKv[1] ?? "").toLowerCase();
       const nestedValue = (nestedKv[2] ?? "").trim();
-      map[key] = nestedValue === "" ? {} : parseYamlScalar(nestedValue);
+      map[key] = nestedValue === "" ? {} : parseYamlScalar(nestedValue, anchors);
       continue;
     }
     const kv = raw.match(/^([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
@@ -65,7 +66,7 @@ export function parseSimpleYaml(src: string): Record<string, unknown> {
       }
       result[currentKey] = (blockStyle === "|" ? block.join("\n") : block.join(" ")).trim();
     } else {
-      result[currentKey] = parseYamlScalar(value);
+      result[currentKey] = parseYamlScalar(value, anchors);
     }
   }
   return result;
@@ -82,38 +83,118 @@ export function stripQuotes(s: string): string {
   return t;
 }
 
-function parseYamlScalar(value: string): unknown {
+function parseYamlScalar(value: string, anchors: Map<string, unknown>): unknown {
   const stripped = stripQuotes(value);
   if (stripped !== value.trim()) return stripped;
-  if (/^[!&*]/.test(stripped)) return { "": null };
-  if (stripped.startsWith("{") && stripped.endsWith("}")) {
-    return parseFlowMapping(stripped);
+  let rest = stripped;
+  let forceString = false;
+  let anchorName: string | undefined;
+  while (rest) {
+    const stringTag = rest.match(
+      /^(?:!!str|!<tag:yaml\.org,2002:str>)(?:\s+|$)([\s\S]*)$/,
+    );
+    if (stringTag) {
+      forceString = true;
+      rest = stringTag[1] ?? "";
+      continue;
+    }
+    if (rest.startsWith("!")) return { "": null };
+    const anchor = rest.match(/^&([^\s,[\]{}]+)(?:\s+|$)([\s\S]*)$/);
+    if (anchor) {
+      anchorName = anchor[1];
+      rest = anchor[2] ?? "";
+      continue;
+    }
+    break;
   }
-  if (stripped.startsWith("[") && stripped.endsWith("]")) {
-    return stripped
-      .slice(1, -1)
-      .split(",")
-      .map((item) => parseYamlScalar(item.trim()));
+  let parsed: unknown;
+  const alias = rest.match(/^\*([^\s,[\]{}]+)$/);
+  if (alias) {
+    parsed = anchors.has(alias[1] ?? "") ? anchors.get(alias[1] ?? "") : { "": null };
+  } else if (forceString) {
+    const unquoted = stripQuotes(rest);
+    parsed = unquoted === rest.trim() && /^[{[]/.test(rest.trim()) ? { "": null } : unquoted;
+  } else if (rest.startsWith("{") && rest.endsWith("}")) {
+    parsed = parseFlowMapping(rest, anchors);
+  } else if (rest.startsWith("[") && rest.endsWith("]")) {
+    const items = splitFlowItems(rest.slice(1, -1));
+    parsed = items?.map((item) => parseYamlScalar(item.trim(), anchors)) ?? [{ "": null }];
+  } else if (/^(?:true|false)$/i.test(rest)) {
+    parsed = rest.toLowerCase() === "true";
+  } else if (/^(?:null|~)$/i.test(rest)) {
+    parsed = null;
+  } else if (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(rest)) {
+    parsed = Number(rest);
+  } else {
+    parsed = rest;
   }
-  if (/^(?:true|false)$/i.test(stripped)) return stripped.toLowerCase() === "true";
-  if (/^(?:null|~)$/i.test(stripped)) return null;
-  if (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(stripped)) {
-    return Number(stripped);
-  }
-  return stripped;
+  if (anchorName) anchors.set(anchorName, parsed);
+  return parsed;
 }
 
-function parseFlowMapping(value: string): Record<string, unknown> {
+function parseFlowMapping(
+  value: string,
+  anchors: Map<string, unknown>,
+): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   const body = value.slice(1, -1).trim();
   if (!body) return result;
-  for (const item of body.split(",")) {
-    const separator = item.indexOf(":");
+  const items = splitFlowItems(body);
+  if (!items) return { "": null };
+  for (const item of items) {
+    const separator = flowDelimiterPositions(item, ":")?.[0] ?? -1;
     const key = stripQuotes(item.slice(0, separator)).trim().toLowerCase();
     if (separator <= 0 || !key) return { "": null };
-    result[key] = parseYamlScalar(item.slice(separator + 1).trim());
+    result[key] = parseYamlScalar(item.slice(separator + 1).trim(), anchors);
   }
   return result;
+}
+
+function splitFlowItems(value: string): string[] | undefined {
+  const delimiters = flowDelimiterPositions(value, ",");
+  if (!delimiters) return undefined;
+  const items: string[] = [];
+  let start = 0;
+  for (const delimiter of delimiters) {
+    items.push(value.slice(start, delimiter));
+    start = delimiter + 1;
+  }
+  items.push(value.slice(start));
+  if (items.at(-1)?.trim() === "") items.pop();
+  return items;
+}
+
+function flowDelimiterPositions(value: string, delimiter: string): number[] | undefined {
+  const positions: number[] = [];
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  let depth = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    const char = value[i];
+    if (quote) {
+      if (quote === '"' && escaped) {
+        escaped = false;
+      } else if (quote === '"' && char === "\\") {
+        escaped = true;
+      } else if (quote === "'" && char === "'" && value[i + 1] === "'") {
+        i += 1;
+      } else if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "[" || char === "{") {
+      depth += 1;
+    } else if (char === "]" || char === "}") {
+      if (depth === 0) return undefined;
+      depth -= 1;
+    } else if (char === delimiter && depth === 0) {
+      positions.push(i);
+    }
+  }
+  return quote || depth !== 0 ? undefined : positions;
 }
 
 export function hostFromUrl(raw: string): string | undefined {
