@@ -63,11 +63,36 @@ const TEXT_EXT = new Set([
   ".gypi",
 ]);
 
+const BINARY_ASSET_EXT = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".ico",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".pdf",
+  ".mp3",
+  ".mp4",
+  ".mov",
+  ".webm",
+  ".wav",
+  ".flac",
+]);
+
 export const MAX_TEXT_BYTES = 1_000_000;
+const TEXT_PROBE_BYTES = 4_096;
 
 export function isTextPath(relPath: string): boolean {
   const ext = path.extname(relPath).toLowerCase();
   return TEXT_EXT.has(ext) || ext === "";
+}
+
+function isKnownBinaryAssetPath(relPath: string): boolean {
+  return BINARY_ASSET_EXT.has(path.extname(relPath).toLowerCase());
 }
 
 export async function listFiles(
@@ -135,20 +160,33 @@ export async function readTextFiles(
 ): Promise<TextFile[]> {
   const out: TextFile[] = [];
   for (const file of files) {
-    if (!isTextPath(file.relPath)) continue;
-    if (file.size > MAX_TEXT_BYTES) {
-      skipped.push({
-        relPath: file.relPath,
-        reason: `text file is too large to inspect (${file.size} bytes)`,
-      });
-      continue;
-    }
     let handle;
     try {
       handle = await open(file.absPath, constants.O_RDONLY | constants.O_NOFOLLOW);
       const current = await handle.stat();
       if (!current.isFile()) {
         skipped.push({ relPath: file.relPath, reason: "entry changed before inspection" });
+        continue;
+      }
+      const knownText = isTextPath(file.relPath);
+      if (!knownText) {
+        const probe = Buffer.alloc(Math.min(TEXT_PROBE_BYTES, current.size));
+        const { bytesRead } = await handle.read(probe, 0, probe.length, 0);
+        if (!looksTextual(probe.subarray(0, bytesRead))) {
+          if (!isKnownBinaryAssetPath(file.relPath)) {
+            skipped.push({
+              relPath: file.relPath,
+              reason: "unrecognized non-text file was not inspected",
+            });
+          }
+          continue;
+        }
+      }
+      if (current.size > MAX_TEXT_BYTES) {
+        skipped.push({
+          relPath: file.relPath,
+          reason: `text-shaped file is too large to inspect (${current.size} bytes)`,
+        });
         continue;
       }
       const buf = Buffer.alloc(MAX_TEXT_BYTES + 1);
@@ -177,6 +215,18 @@ export async function readTextFiles(
     }
   }
   return out;
+}
+
+function looksTextual(content: Buffer): boolean {
+  if (content.length === 0) return true;
+  if (content.includes(0)) return false;
+  let controls = 0;
+  for (const byte of content) {
+    if (byte < 0x09 || (byte > 0x0d && byte < 0x20) || byte === 0x7f) {
+      controls += 1;
+    }
+  }
+  return controls / content.length <= 0.01;
 }
 
 export function toPosix(p: string): string {

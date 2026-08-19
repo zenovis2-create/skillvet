@@ -295,32 +295,21 @@ function unique(items: string[]): string[] {
 function isAllowedVersion(value: string): boolean {
   const version = value.trim();
   if (!version || version.length > 255 || version === "latest") return false;
+  if (version.includes("||") || version.includes("&&")) return false;
   if (/^(?:x|\*)$/i.test(version)) return false;
-  const comparator = /^\s*(?:\^|~|>=|<=|>|<|=)\s*v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?\s*$/;
-  const comparatorSet = /^\s*(?:(?:\^|~|>=|<=|>|<|=)\s*v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?)(?:\s+(?:\^|~|>=|<=|>|<|=)\s*v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?)*\s*$/;
-  const hyphenRange = /^\s*v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?\s-\s*v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?\s*$/;
-  const orRange = /^\s*(?:v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?\s*)(?:\|\|\s*v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?\s*)+$/;
-  const dottedVersion = /^\s*(?:v?\d+|x|X|\*)(?:\.(?:\d+|x|X|\*)){1,2}(?:-[0-9A-Za-z.-]+)?\s*$/;
-  const exactNumeric = /^\s*v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?\s*$/;
-  const orParts = version.split(/\s*\|\|\s*/);
-  const compoundOrRange =
-    orParts.length > 1 &&
-    orParts.every(
-      (part) =>
-        comparatorSet.test(part) ||
-        exactNumeric.test(part) ||
-        /^(?:x|\*)$/i.test(part) ||
-        (dottedVersion.test(part) && /[xX*]/.test(part)),
-    );
-  if (
-    comparator.test(version) ||
-    comparatorSet.test(version) ||
-    hyphenRange.test(version) ||
-    orRange.test(version) ||
-    compoundOrRange
-  ) {
+  if (/(?:^|[\s,])(?:\^|~=|~|>=|>|<=|<|!=|=)\s*\S/.test(version)) return false;
+  if (/^(?:\[|\()\s*(?:v?\d|,).*?(?:\]|\))$/.test(version)) {
     return false;
   }
+  const numericVersion =
+    "v?\\d+(?:\\.\\d+){0,3}(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?";
+  if (new RegExp(`^${numericVersion}\\s+-\\s+${numericVersion}$`).test(version)) {
+    return false;
+  }
+  if (new RegExp(`^${numericVersion}(?:\\s+${numericVersion})+$`).test(version)) {
+    return false;
+  }
+  const dottedVersion = /^\s*(?:v?\d+|x|X|\*)(?:\.(?:\d+|x|X|\*)){1,2}(?:-[0-9A-Za-z.-]+)?\s*$/;
   return !(dottedVersion.test(version) && /[xX*]/.test(version));
 }
 

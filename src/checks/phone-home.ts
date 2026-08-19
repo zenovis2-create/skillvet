@@ -51,6 +51,7 @@ const CODE_EXT = new Set([
 ]);
 
 const DOC_FILES = new Set(["readme.md", "changelog.md", "license", "license.md"]);
+const DOC_EXT = new Set([".md", ".txt", ".rst", ".adoc"]);
 
 const URL_RE = /(?:https?|wss?):\/\/[^\s"'`\\)<>]+/gi;
 const IPC_RE = /\b(?:ipc|unix|npipe):\/\/[^\s"'`\\)<>]+/gi;
@@ -192,7 +193,8 @@ function isScannableFile(file: TextFile): boolean {
   if (DOC_FILES.has(base)) return false;
   if (base === "skill.md") return true;
   const ext = path.extname(file.relPath).toLowerCase();
-  return CODE_EXT.has(ext) || (ext === "" && file.content.startsWith("#!"));
+  if (DOC_EXT.has(ext)) return false;
+  return CODE_EXT.has(ext) || ext !== "" || file.content.startsWith("#!");
 }
 
 function stripTrailingPunct(s: string): string {
