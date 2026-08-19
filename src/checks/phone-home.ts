@@ -1,7 +1,13 @@
 import path from "node:path";
 import { hostFromUrl, normalizeHost } from "../manifest.js";
 import type { CheckResult, Finding, ScanContext, TextFile } from "../types.js";
-import { clip, eachLine, redactUrls } from "../walk.js";
+import {
+  clip,
+  createFindingClipper,
+  eachLine,
+  normalizeUrlText,
+  redactUrls,
+} from "../walk.js";
 import { finish } from "./manifest.js";
 
 const DOC_FILES = new Set(["readme.md", "changelog.md", "license", "license.md"]);
@@ -121,6 +127,37 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
     if (!isScannableFile(file)) continue;
     const ext = path.extname(file.relPath).toLowerCase();
     const isSkillInstructions = path.basename(file.relPath).toLowerCase() === "skill.md";
+    const sourceLines = file.content.split(/\r\n|\r|\n/);
+    const clipLine = createFindingClipper(file.content);
+
+    if (!SKIP_URL_FILES.has(path.basename(file.relPath))) {
+      const urlView = normalizeUrlText(file.content);
+      const shouldSkipLine = (lineNo: number): boolean =>
+        !isSkillInstructions &&
+        !DOCUMENT_EXT.has(ext) &&
+        isSourceComment(sourceLines[lineNo - 1] ?? "", ext);
+      collectUrls(
+        urlView.text,
+        URL_RE,
+        file,
+        urlView.lineNumbers,
+        shouldSkipLine,
+        allowed,
+        seenHosts,
+        findings,
+      );
+      collectUrls(
+        urlView.text,
+        IPC_RE,
+        file,
+        urlView.lineNumbers,
+        shouldSkipLine,
+        allowed,
+        seenHosts,
+        findings,
+        true,
+      );
+    }
 
     eachLine(file.content, (line, lineNo) => {
       if (
@@ -129,12 +166,6 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
         isSourceComment(line, ext)
       ) {
         return;
-      }
-
-      if (!SKIP_URL_FILES.has(path.basename(file.relPath))) {
-        const urlLine = line.replace(/[\t\r\n]/g, "");
-        collectUrls(urlLine, URL_RE, file, lineNo, allowed, seenHosts, findings);
-        collectUrls(urlLine, IPC_RE, file, lineNo, allowed, seenHosts, findings, true);
       }
 
       for (const prim of PRIMITIVES) {
@@ -148,7 +179,7 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
           message: prim.message,
           file: file.relPath,
           line: lineNo,
-          evidence: clip(line),
+          evidence: clipLine(line, lineNo),
           score: prim.score,
         });
       }
@@ -167,10 +198,11 @@ function isSourceComment(line: string, ext: string): boolean {
 }
 
 function collectUrls(
-  line: string,
+  content: string,
   re: RegExp,
   file: TextFile,
-  lineNo: number,
+  lineNumbers: number[],
+  shouldSkipLine: (lineNo: number) => boolean,
   allowed: Set<string>,
   seenHosts: Set<string>,
   findings: Finding[],
@@ -178,8 +210,11 @@ function collectUrls(
 ): void {
   re.lastIndex = 0;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(line))) {
+  while ((match = re.exec(content))) {
     const raw = stripTrailingPunct(match[0] ?? "");
+    const startLine = lineNumbers[match.index] ?? 1;
+    const endLine = lineNumbers[match.index + Math.max(raw.length - 1, 0)] ?? startLine;
+    if (startLine === endLine && shouldSkipLine(startLine)) continue;
     if (ipc) {
       const key = `ipc:${raw}`;
       if (seenHosts.has(key)) continue;
@@ -188,8 +223,8 @@ function collectUrls(
         check: "phone-home",
         message: `outbound IPC endpoint ${redactUrls(raw)}`,
         file: file.relPath,
-        line: lineNo,
-        evidence: clip(line),
+        line: startLine,
+        evidence: clip(raw),
         score: 30,
       });
       continue;
@@ -203,7 +238,7 @@ function collectUrls(
       check: "phone-home",
       message: `${declared ? "declared" : "undeclared"} outbound host ${host}`,
       file: file.relPath,
-      line: lineNo,
+      line: startLine,
       evidence: clip(raw),
       score: declared ? 35 : 40,
     });

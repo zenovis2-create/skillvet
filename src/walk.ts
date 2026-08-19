@@ -254,7 +254,7 @@ export function eachLine(
   content: string,
   fn: (line: string, lineNo: number) => void,
 ): void {
-  const lines = content.split(/\r?\n/);
+  const lines = content.split(/\r\n|\r|\n/);
   for (let i = 0; i < lines.length; i++) fn(lines[i] ?? "", i + 1);
 }
 
@@ -266,8 +266,32 @@ export function clip(s: string, max = 80): string {
 const EVIDENCE_URL_RE =
   /\b(?:https?|wss?|ipc|unix|npipe):(?:(?!\b(?:https?|wss?|ipc|unix|npipe):)[^"'`])+/gi;
 
+export function normalizeUrlText(value: string): {
+  text: string;
+  lineNumbers: number[];
+} {
+  let text = "";
+  let lineNo = 1;
+  const lineNumbers: number[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i] ?? "";
+    if (char === "\t") continue;
+    if (char === "\r") {
+      if (value[i + 1] !== "\n") lineNo += 1;
+      continue;
+    }
+    if (char === "\n") {
+      lineNo += 1;
+      continue;
+    }
+    text += char;
+    lineNumbers.push(lineNo);
+  }
+  return { text, lineNumbers };
+}
+
 export function redactUrls(value: string): string {
-  const normalized = value.replace(/[\t\r\n]/g, "");
+  const normalized = normalizeUrlText(value).text;
   return normalized.replace(EVIDENCE_URL_RE, (raw) => {
     const candidate = raw.replace(/[.,;:!?)\]}><(]+$/g, "");
     try {
@@ -290,6 +314,28 @@ export function redactUrls(value: string): string {
       return "<redacted URL>";
     }
   });
+}
+
+export function createFindingClipper(
+  content: string,
+): (line: string, lineNo: number, max?: number) => string {
+  const view = normalizeUrlText(content);
+  const ranges: { startLine: number; endLine: number; raw: string }[] = [];
+  EVIDENCE_URL_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = EVIDENCE_URL_RE.exec(view.text))) {
+    const start = match.index;
+    const end = start + (match[0]?.length ?? 0) - 1;
+    const startLine = view.lineNumbers[start] ?? 1;
+    const endLine = view.lineNumbers[end] ?? startLine;
+    if (startLine !== endLine) {
+      ranges.push({ startLine, endLine, raw: match[0] ?? "" });
+    }
+  }
+  return (line: string, lineNo: number, max = 80): string => {
+    const range = ranges.find((item) => lineNo >= item.startLine && lineNo <= item.endLine);
+    return clip(range?.raw ?? line, max);
+  };
 }
 
 export function redactFinding(finding: Finding): Finding {

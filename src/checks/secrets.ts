@@ -1,5 +1,5 @@
 import type { CheckResult, Finding, ScanContext } from "../types.js";
-import { clip, eachLine } from "../walk.js";
+import { createFindingClipper, eachLine } from "../walk.js";
 import { finish } from "./manifest.js";
 
 const PATTERNS: { re: RegExp; message: string; family: string }[] = [
@@ -31,6 +31,7 @@ export function checkSecrets(ctx: ScanContext): CheckResult {
 
   for (const file of ctx.textFiles) {
     if (SKIP.has(file.relPath.split("/").pop()?.toLowerCase() ?? "")) continue;
+    const clipLine = createFindingClipper(file.content);
     eachLine(file.content, (line, lineNo) => {
       for (const pat of PATTERNS) {
         if (!pat.re.test(line)) continue;
@@ -42,7 +43,7 @@ export function checkSecrets(ctx: ScanContext): CheckResult {
           message: pat.message,
           file: file.relPath,
           line: lineNo,
-          evidence: clip(line),
+          evidence: clipLine(line, lineNo),
           score: 35,
         });
       }

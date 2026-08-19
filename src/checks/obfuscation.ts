@@ -1,5 +1,5 @@
 import type { CheckResult, Finding, ScanContext } from "../types.js";
-import { clip, eachLine } from "../walk.js";
+import { createFindingClipper, eachLine } from "../walk.js";
 import { finish } from "./manifest.js";
 
 const DOC_FILES = new Set(["readme.md", "changelog.md", "license", "license.md"]);
@@ -40,6 +40,7 @@ export function checkObfuscation(ctx: ScanContext): CheckResult {
   for (const file of ctx.textFiles) {
     const base = file.relPath.split("/").pop()?.toLowerCase() ?? "";
     if (DOC_FILES.has(base)) continue;
+    const clipLine = createFindingClipper(file.content);
 
     eachLine(file.content, (line, lineNo) => {
       for (const pat of PATTERNS) {
@@ -52,7 +53,7 @@ export function checkObfuscation(ctx: ScanContext): CheckResult {
           message: pat.message,
           file: file.relPath,
           line: lineNo,
-          evidence: clip(line),
+          evidence: clipLine(line, lineNo),
           score: pat.score,
         });
       }
