@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,5 +17,22 @@ describe("CLI entrypoint", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("redacts URL-shaped credentials embedded in path errors", () => {
+    const projectRoot = fileURLToPath(new URL("..", import.meta.url));
+    const target = path.join(
+      tmpdir(),
+      "https:path-user:path-pass@example.com?path=secret#part",
+    );
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "src/cli.ts", target, "--json"],
+      { cwd: projectRoot, encoding: "utf8" },
+    );
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain("path not found");
+    expect(result.stdout).toContain("example.com");
+    expect(result.stdout).not.toMatch(/path-user|path-pass|path=secret|#part/);
   });
 });

@@ -27,7 +27,7 @@ export function formatReport(result: ScanResult, options: ReportOptions = {}): s
 export function toJson(result: ScanResult) {
   return {
     version: result.version,
-    target: redactTarget(result.target),
+    target: redactUrls(redactTarget(result.target)),
     resolvedPath: redactUrls(result.resolvedPath),
     kind: result.kind,
     verdict: result.verdict,
@@ -47,7 +47,9 @@ export function toJson(result: ScanResult) {
 function formatTable(result: ScanResult, color: boolean): string {
   const c = paint(color);
   const lines: string[] = [];
-  lines.push(`${c.bold("skillvet")} ${c.dim(VERSION)}   scan  ${redactTarget(result.target)}`);
+  lines.push(
+    `${c.bold("skillvet")} ${c.dim(VERSION)}   scan  ${redactUrls(redactTarget(result.target))}`,
+  );
   lines.push(`${c.dim("kind")} ${result.kind}${result.strict ? c.dim("   --strict") : ""}`);
   lines.push("");
   lines.push(c.dim(row("check", "pts", "status", "notes")));

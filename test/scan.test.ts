@@ -54,12 +54,18 @@ describe("report", () => {
 
   it("redacts credential-bearing targets at the reporting boundary", async () => {
     const result = await scan(fixture("green-skill"));
-    result.target = "https://user:pass@example.com/archive.tgz?token=secret#part";
-    const table = formatReport(result);
-    const json = formatReport(result, { json: true });
-    expect(table).toContain("https://example.com/archive.tgz");
-    expect(json).toContain("https://example.com/archive.tgz");
-    expect(`${table}\n${json}`).not.toMatch(/user|pass|token=secret|#part/);
+    for (const target of [
+      "https://user:pass@example.com/archive.tgz?token=secret#part",
+      "/tmp/https:path-user:path-pass@example.com?path=secret#part",
+    ]) {
+      result.target = target;
+      const table = formatReport(result);
+      const json = formatReport(result, { json: true });
+      expect(`${table}\n${json}`).toContain("example.com");
+      expect(`${table}\n${json}`).not.toMatch(
+        /user|pass|token=secret|path=secret|#part/,
+      );
+    }
   });
 
   it("redacts credential-bearing finding fields at the reporting boundary", async () => {

@@ -16,8 +16,8 @@ const DOCUMENT_EXT = new Set([
   ".txt",
 ]);
 
-const URL_RE = /(?:https?|wss?):(?:\/\/)?[^\s"'`)<>]+/gi;
-const IPC_RE = /\b(?:ipc|unix|npipe):(?:\/\/)?[^\s"'`)<>]+/gi;
+const URL_RE = /(?:https?|wss?):(?:\/\/)?[^\s"'`]+/gi;
+const IPC_RE = /\b(?:ipc|unix|npipe):(?:\/\/)?[^\s"'`]+/gi;
 const HASH_COMMENT_EXT = new Set([
   ".py",
   ".sh",
@@ -188,7 +188,7 @@ function collectUrls(
         file: file.relPath,
         line: lineNo,
         evidence: clip(line),
-        score: 25,
+        score: 30,
       });
       continue;
     }

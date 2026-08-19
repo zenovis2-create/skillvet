@@ -9,6 +9,7 @@ import { loadContext } from "./context.js";
 import { resolveTarget } from "./resolve.js";
 import { redactTarget } from "./safe-http.js";
 import { scoreFindings } from "./score.js";
+import { redactUrls } from "./walk.js";
 import {
   SCORE_RED,
   SCORE_YELLOW,
@@ -35,7 +36,7 @@ export async function scan(target: string, options: ScanOptions = {}): Promise<S
     const { score, verdict } = scoreFindings(findings, options);
     return {
       version: VERSION,
-      target: redactTarget(target),
+      target: redactUrls(redactTarget(target)),
       resolvedPath: resolved.path,
       kind: ctx.kind,
       verdict,

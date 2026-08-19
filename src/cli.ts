@@ -7,6 +7,7 @@ import { formatReport, shouldColor } from "./report.js";
 import { scan } from "./scan.js";
 import { exitCodeFor } from "./score.js";
 import { VERSION } from "./types.js";
+import { redactUrls } from "./walk.js";
 
 export { parseArgs, helpText } from "./args.js";
 export type { CliArgs } from "./args.js";
@@ -16,7 +17,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   try {
     args = parseArgs(argv);
   } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : err}\n`);
+    process.stderr.write(`${redactUrls(err instanceof Error ? err.message : String(err))}\n`);
     return 2;
   }
   if (args.help) {
@@ -40,7 +41,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     process.stdout.write(report.endsWith("\n") ? report : `${report}\n`);
     return exitCodeFor(result.verdict);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = redactUrls(err instanceof Error ? err.message : String(err));
     if (args.json) {
       process.stdout.write(
         `${JSON.stringify({ error: message, verdict: "RED", score: 100 }, null, 2)}\n`,
