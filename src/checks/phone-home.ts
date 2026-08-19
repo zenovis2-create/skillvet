@@ -136,10 +136,23 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
     if (!isScannableFile(file)) continue;
     const ext = path.extname(file.relPath).toLowerCase();
     const isSkillInstructions = path.basename(file.relPath).toLowerCase() === "skill.md";
+    const isCSharp = ext === ".cs";
+    const urlTextOptions = {
+      unicodeLineTerminators: isCSharp
+        ? "\u0085\u2028\u2029"
+        : ECMASCRIPT_EXT.has(ext)
+          ? "\u2028\u2029"
+          : "",
+      backslashContinuations: !isCSharp,
+    };
     const sourceLines = file.content.split(
-      ECMASCRIPT_EXT.has(ext) ? /\r\n|\r|\n|\u2028|\u2029/ : /\r\n|\r|\n/,
+      isCSharp
+        ? /\r\n|\r|\n|\u0085|\u2028|\u2029/
+        : ECMASCRIPT_EXT.has(ext)
+          ? /\r\n|\r|\n|\u2028|\u2029/
+          : /\r\n|\r|\n/,
     );
-    const clipLine = createFindingClipper(file.content);
+    const clipLine = createFindingClipper(file.content, urlTextOptions);
 
     if (!SKIP_URL_FILES.has(path.basename(file.relPath))) {
       const shouldSkipLine = (lineNo: number): boolean =>
@@ -149,7 +162,7 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
       for (let i = 0; i < sourceLines.length; i++) {
         const line = sourceLines[i] ?? "";
         const lineNo = i + 1;
-        const lineView = normalizeUrlText(line);
+        const lineView = normalizeUrlText(line, urlTextOptions);
         const lineNumbers = new Array<number>(lineView.text.length).fill(lineNo);
         collectUrls(
           lineView.text,
@@ -173,7 +186,7 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
           true,
         );
       }
-      const urlView = normalizeUrlText(file.content);
+      const urlView = normalizeUrlText(file.content, urlTextOptions);
       collectUrls(
         urlView.text,
         URL_RE,

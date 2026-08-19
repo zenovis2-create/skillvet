@@ -266,19 +266,31 @@ export function clip(s: string, max = 80): string {
 const EVIDENCE_URL_RE =
   /\b(?:https?|wss?|ipc|unix|npipe):(?:(?!\b(?:https?|wss?|ipc|unix|npipe):)[^"'`])+/gi;
 
-export function normalizeUrlText(value: string): {
+export function normalizeUrlText(
+  value: string,
+  options: {
+    unicodeLineTerminators?: string;
+    backslashContinuations?: boolean;
+  } = {},
+): {
   text: string;
   lineNumbers: number[];
 } {
+  const unicodeLineTerminators = options.unicodeLineTerminators ?? "\u2028\u2029";
+  const backslashContinuations = options.backslashContinuations ?? true;
   let text = "";
   let lineNo = 1;
   const lineNumbers: number[] = [];
   for (let i = 0; i < value.length; i++) {
     const char = value[i] ?? "";
+    const isUnicodeLineTerminator = unicodeLineTerminators.includes(char);
     const isLineTerminator =
-      char === "\r" || char === "\n" || char === "\u2028" || char === "\u2029";
+      char === "\r" || char === "\n" || isUnicodeLineTerminator;
     const isLineContinuation =
-      isLineTerminator && value[i - 1] === "\\" && text.endsWith("\\");
+      backslashContinuations &&
+      isLineTerminator &&
+      value[i - 1] === "\\" &&
+      text.endsWith("\\");
     if (isLineContinuation) {
       text = text.slice(0, -1);
       lineNumbers.pop();
@@ -292,13 +304,13 @@ export function normalizeUrlText(value: string): {
       lineNo += 1;
       continue;
     }
-    if ((char === "\u2028" || char === "\u2029") && isLineContinuation) {
+    if (isUnicodeLineTerminator && isLineContinuation) {
       lineNo += 1;
       continue;
     }
     text += char;
     lineNumbers.push(lineNo);
-    if (char === "\u2028" || char === "\u2029") lineNo += 1;
+    if (isUnicodeLineTerminator) lineNo += 1;
   }
   return { text, lineNumbers };
 }
@@ -331,8 +343,9 @@ export function redactUrls(value: string): string {
 
 export function createFindingClipper(
   content: string,
+  options?: Parameters<typeof normalizeUrlText>[1],
 ): (line: string, lineNo: number, max?: number) => string {
-  const view = normalizeUrlText(content);
+  const view = normalizeUrlText(content, options);
   const ranges: { startLine: number; endLine: number; raw: string }[] = [];
   EVIDENCE_URL_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
