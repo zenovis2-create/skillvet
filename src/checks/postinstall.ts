@@ -20,11 +20,32 @@ const HOOKS: { name: string; score: number }[] = [
 
 export function checkPostinstall(ctx: ScanContext): CheckResult {
   const findings: Finding[] = [];
-  const scripts = ctx.pkg?.scripts ?? {};
+  const scripts = ctx.pkg?.scripts;
+
+  if (
+    scripts !== undefined &&
+    (!scripts || typeof scripts !== "object" || Array.isArray(scripts))
+  ) {
+    findings.push({
+      check: "postinstall",
+      message: "package.json scripts must be an object of command strings",
+      file: "package.json",
+      score: 35,
+    });
+  }
 
   for (const hook of HOOKS) {
-    const cmd = scripts[hook.name];
-    if (!cmd) continue;
+    const cmd = scriptValue(scripts, hook.name);
+    if (cmd === undefined || cmd === "") continue;
+    if (typeof cmd !== "string") {
+      findings.push({
+        check: "postinstall",
+        message: `package.json scripts.${hook.name} must be a command string`,
+        file: "package.json",
+        score: hook.score,
+      });
+      continue;
+    }
     findings.push({
       check: "postinstall",
       message: `package.json scripts.${hook.name} is an npm lifecycle hook`,
@@ -38,8 +59,8 @@ export function checkPostinstall(ctx: ScanContext): CheckResult {
   if (
     hasBindingGyp &&
     ctx.pkg?.gypfile !== false &&
-    !scripts.install &&
-    !scripts.preinstall
+    !scriptValue(scripts, "install") &&
+    !scriptValue(scripts, "preinstall")
   ) {
     findings.push({
       check: "postinstall",
@@ -50,4 +71,11 @@ export function checkPostinstall(ctx: ScanContext): CheckResult {
   }
 
   return finish("postinstall", "postinstall", findings, 45);
+}
+
+function scriptValue(scripts: unknown, name: string): unknown {
+  if (!scripts || typeof scripts !== "object" || Array.isArray(scripts)) {
+    return undefined;
+  }
+  return Reflect.get(scripts, name);
 }

@@ -7,6 +7,8 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_REDIRECTS = 5;
 
 const blockedAddresses = new BlockList();
+const publicV6Addresses = new BlockList();
+publicV6Addresses.addSubnet("2000::", 3, "ipv6");
 const blockedV4: ReadonlyArray<readonly [string, number]> = [
   ["0.0.0.0", 8],
   ["10.0.0.0", 8],
@@ -77,7 +79,12 @@ export function redactTarget(raw: string): string {
 export function isBlockedAddress(address: string): boolean {
   const family = isIP(address);
   if (family === 4) return blockedAddresses.check(address, "ipv4");
-  if (family === 6) return blockedAddresses.check(address, "ipv6");
+  if (family === 6) {
+    return (
+      !publicV6Addresses.check(address, "ipv6") ||
+      blockedAddresses.check(address, "ipv6")
+    );
+  }
   return true;
 }
 

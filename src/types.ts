@@ -75,7 +75,7 @@ export interface PackageJson {
   name?: string;
   version?: string;
   description?: string;
-  scripts?: Record<string, string>;
+  scripts?: unknown;
   homepage?: string;
   repository?: string | { url?: string; type?: string };
   mcp?: unknown;

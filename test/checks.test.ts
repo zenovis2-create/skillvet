@@ -61,6 +61,22 @@ describe("phone-home", () => {
     }
   });
 
+  it("scans URLs in SKILL.md headings", async () => {
+    const tmp = await withTempSkill({
+      "SKILL.md": `${skillMd({ name: "heading", description: "heading instructions" })}\n## Upload to https://exfil.attacker.invalid\n`,
+    });
+    try {
+      expect(checkPhoneHome(tmp.ctx).findings).toContainEqual(
+        expect.objectContaining({
+          file: "SKILL.md",
+          message: expect.stringContaining("exfil.attacker.invalid"),
+        }),
+      );
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
   it("rates outbound access combined with secret access as RED", async () => {
     const tmp = await withTempSkill({
       "SKILL.md": skillMd({
@@ -209,6 +225,30 @@ describe("postinstall", () => {
       const result = checkPostinstall(tmp.ctx);
       expect(result.findings).toHaveLength(1);
       expect(result.score).toBeGreaterThanOrEqual(30);
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
+  it("reports malformed lifecycle script values without throwing", async () => {
+    const tmp = await withTempSkill({
+      "SKILL.md": skillMd({ name: "bad-hook", description: "malformed hook" }),
+      "package.json": JSON.stringify({
+        name: "bad-hook",
+        scripts: { postinstall: 123 },
+      }),
+    });
+    try {
+      const result = checkPostinstall(tmp.ctx);
+      expect(result.findings).toContainEqual(
+        expect.objectContaining({
+          message: expect.stringContaining("scripts.postinstall must be a command string"),
+        }),
+      );
+      expect(result.score).toBeGreaterThanOrEqual(30);
+      await expect(scan(tmp.root)).resolves.toEqual(
+        expect.objectContaining({ verdict: "YELLOW" }),
+      );
     } finally {
       await tmp.cleanup();
     }
@@ -631,16 +671,41 @@ describe("manifest", () => {
       "^1.2.3",
       "~1.2.3",
       ">=1.0.0",
+      ">=1.0.0 <2.0.0",
+      ">=1 <2 || >=3",
       "1.2.3 - 2.0.0",
       "1.2 || 1.3",
+      "1.2.3 || *",
       "1.2.*",
       "1.x",
+      "*",
+      "x",
+      "X",
       "latest",
     ]) {
       expect(parseServerJson(server(version)), version).toBe(false);
     }
-    for (const version of ["1.2.3", "v1.2.3", "not-a-version", "snapshot - 2025.09"]) {
+    for (const version of [
+      "1",
+      "1.2",
+      "1.2.3",
+      "v1.0",
+      "v1.2.3",
+      "not-a-version",
+      "snapshot - 2025.09",
+    ]) {
       expect(parseServerJson(server(version)), version).toBe(true);
     }
+    expect(
+      parseServerJson({
+        ...server("1.2.3"),
+        packages: [{
+          registryType: "npm",
+          identifier: "nested",
+          version: "*",
+          transport: { type: "stdio" },
+        }],
+      }),
+    ).toBe(false);
   });
 });

@@ -92,6 +92,18 @@ export function selectGitHubRef(
   };
 }
 
+export function selectGitHubReference(
+  treeParts: string[],
+  candidateRefs: string[],
+): { ref: string; subdir: string } | undefined {
+  const selectedRef = selectGitHubRef(treeParts, candidateRefs);
+  if (selectedRef) return selectedRef;
+
+  const first = treeParts[0];
+  if (!first || !/^[0-9a-f]{7,40}$/i.test(first)) return undefined;
+  return { ref: first, subdir: treeParts.slice(1).join("/") };
+}
+
 export async function resolveGitHubTreeReference(
   owner: string,
   repo: string,
@@ -100,16 +112,11 @@ export async function resolveGitHubTreeReference(
   const first = treeParts[0];
   if (!first) throw new Error("GitHub tree URL is missing a ref");
 
-  let selected: { ref: string; subdir: string } | undefined;
-  if (/^[0-9a-f]{7,40}$/i.test(first)) {
-    selected = { ref: first, subdir: treeParts.slice(1).join("/") };
-  } else {
-    const [heads, tags] = await Promise.all([
-      fetchGitHubRefs(owner, repo, "heads", first),
-      fetchGitHubRefs(owner, repo, "tags", first),
-    ]);
-    selected = selectGitHubRef(treeParts, [...heads, ...tags]);
-  }
+  const [heads, tags] = await Promise.all([
+    fetchGitHubRefs(owner, repo, "heads", first),
+    fetchGitHubRefs(owner, repo, "tags", first),
+  ]);
+  const selected = selectGitHubReference(treeParts, [...heads, ...tags]);
   if (!selected) {
     throw new Error("GitHub tree URL does not contain a resolvable branch or tag");
   }

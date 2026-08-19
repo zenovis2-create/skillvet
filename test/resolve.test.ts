@@ -10,7 +10,11 @@ import {
   validateArchiveListing,
   validateArchiveMembers,
 } from "../src/archive.js";
-import { GITHUB_API_HEADERS, selectGitHubRef } from "../src/github.js";
+import {
+  GITHUB_API_HEADERS,
+  selectGitHubRef,
+  selectGitHubReference,
+} from "../src/github.js";
 import { resolveContainedPath, resolveTarget } from "../src/resolve.js";
 import { collectLimitedBody, isBlockedAddress, redactTarget } from "../src/safe-http.js";
 
@@ -106,6 +110,8 @@ describe("remote archive limits", () => {
       "192.168.1.1",
       "::1",
       "fe80::1",
+      "fec0::1",
+      "4000::1",
       "::ffff:127.0.0.1",
     ]) {
       expect(isBlockedAddress(address)).toBe(true);
@@ -121,6 +127,19 @@ describe("remote archive limits", () => {
         ["refs/heads/release", "refs/heads/release/2.0"],
       ),
     ).toEqual({ ref: "release/2.0", subdir: "skill" });
+  });
+
+  it("resolves hex-prefixed slash refs before treating the prefix as a commit", () => {
+    expect(
+      selectGitHubReference(
+        ["deadbee", "feature", "skill"],
+        ["refs/heads/deadbee/feature"],
+      ),
+    ).toEqual({ ref: "deadbee/feature", subdir: "skill" });
+    expect(selectGitHubReference(["deadbee", "skill"], [])).toEqual({
+      ref: "deadbee",
+      subdir: "skill",
+    });
   });
 
   it("sends the User-Agent required by GitHub's REST API", () => {

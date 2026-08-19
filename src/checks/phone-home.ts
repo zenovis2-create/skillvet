@@ -107,9 +107,15 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
   for (const file of ctx.textFiles) {
     if (!isScannableFile(file)) continue;
     const ext = path.extname(file.relPath).toLowerCase();
+    const isSkillInstructions = path.basename(file.relPath).toLowerCase() === "skill.md";
 
     eachLine(file.content, (line, lineNo) => {
-      if (line.trimStart().startsWith("//") || line.trimStart().startsWith("#")) return;
+      if (
+        !isSkillInstructions &&
+        (line.trimStart().startsWith("//") || line.trimStart().startsWith("#"))
+      ) {
+        return;
+      }
 
       if (!SKIP_URL_FILES.has(path.basename(file.relPath))) {
         collectUrls(line, URL_RE, file, lineNo, allowed, seenHosts, findings);
