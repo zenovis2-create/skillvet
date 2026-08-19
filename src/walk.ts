@@ -1,4 +1,5 @@
-import { lstat, readdir, readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { FileEntry, SkippedFile, TextFile } from "./types.js";
 
@@ -109,7 +110,10 @@ async function walk(
       continue;
     }
     if (info.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue;
+      if (SKIP_DIRS.has(entry.name)) {
+        skipped.push({ relPath, reason: "directory is excluded from scanning" });
+        continue;
+      }
       await walk(root, absPath, out, skipped);
       continue;
     }
@@ -139,22 +143,38 @@ export async function readTextFiles(
       });
       continue;
     }
-    let buf: Buffer;
+    let handle;
     try {
-      buf = await readFile(file.absPath);
+      handle = await open(file.absPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const current = await handle.stat();
+      if (!current.isFile()) {
+        skipped.push({ relPath: file.relPath, reason: "entry changed before inspection" });
+        continue;
+      }
+      const buf = Buffer.alloc(MAX_TEXT_BYTES + 1);
+      const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+      if (bytesRead > MAX_TEXT_BYTES) {
+        skipped.push({
+          relPath: file.relPath,
+          reason: `text file is too large to inspect (over ${MAX_TEXT_BYTES} bytes)`,
+        });
+        continue;
+      }
+      const content = buf.subarray(0, bytesRead);
+      if (content.includes(0)) {
+        skipped.push({ relPath: file.relPath, reason: "text-shaped file contains NUL bytes" });
+        continue;
+      }
+      out.push({
+        relPath: file.relPath,
+        absPath: file.absPath,
+        content: content.toString("utf8"),
+      });
     } catch {
       skipped.push({ relPath: file.relPath, reason: "text file could not be read" });
-      continue;
+    } finally {
+      await handle?.close();
     }
-    if (buf.includes(0)) {
-      skipped.push({ relPath: file.relPath, reason: "text-shaped file contains NUL bytes" });
-      continue;
-    }
-    out.push({
-      relPath: file.relPath,
-      absPath: file.absPath,
-      content: buf.toString("utf8"),
-    });
   }
   return out;
 }

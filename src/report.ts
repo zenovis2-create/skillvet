@@ -1,4 +1,5 @@
 import { exitCodeFor } from "./score.js";
+import { redactTarget } from "./safe-http.js";
 import { VERSION, type CheckResult, type ScanResult, type Verdict } from "./types.js";
 
 const RESET = "\x1b[0m";
@@ -25,7 +26,7 @@ export function formatReport(result: ScanResult, options: ReportOptions = {}): s
 export function toJson(result: ScanResult) {
   return {
     version: result.version,
-    target: result.target,
+    target: redactTarget(result.target),
     resolvedPath: result.resolvedPath,
     kind: result.kind,
     verdict: result.verdict,
@@ -45,7 +46,7 @@ export function toJson(result: ScanResult) {
 function formatTable(result: ScanResult, color: boolean): string {
   const c = paint(color);
   const lines: string[] = [];
-  lines.push(`${c.bold("skillvet")} ${c.dim(VERSION)}   scan  ${result.target}`);
+  lines.push(`${c.bold("skillvet")} ${c.dim(VERSION)}   scan  ${redactTarget(result.target)}`);
   lines.push(`${c.dim("kind")} ${result.kind}${result.strict ? c.dim("   --strict") : ""}`);
   lines.push("");
   lines.push(c.dim(row("check", "pts", "status", "notes")));

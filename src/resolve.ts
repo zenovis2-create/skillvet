@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { extractSafeTar, extractSafeZip, selectExtractedRoot } from "./archive.js";
 import { parseGitHubTarget, resolveGitHubTreeReference } from "./github.js";
+import { safeGet } from "./safe-http.js";
 
 export interface ResolvedTarget {
   path: string;
@@ -63,11 +64,14 @@ async function fetchRemote(url: string): Promise<ResolvedTarget> {
       };
     }
 
-    const res = await fetchWithTimeout(url);
+    const res = await safeGet(url, {
+      maxBytes: MAX_DOWNLOAD_BYTES,
+      timeoutMs: DOWNLOAD_TIMEOUT_MS,
+    });
     if (!res.ok) {
-      throw new Error(`download failed: ${res.status} ${res.statusText}`);
+      throw new Error(`download failed with HTTP ${res.status}`);
     }
-    const buf = await readLimitedResponse(res, MAX_DOWNLOAD_BYTES);
+    const buf = res.body;
     const name = guessName(url);
     if (isGzip(buf) || name.endsWith(".tar.gz") || name.endsWith(".tgz")) {
       const tarPath = path.join(dest, "src.tar.gz");
@@ -124,56 +128,14 @@ function isWithin(root: string, candidate: string): boolean {
 }
 
 async function downloadToFile(url: string, dest: string): Promise<void> {
-  const res = await fetchWithTimeout(url);
+  const res = await safeGet(url, {
+    maxBytes: MAX_DOWNLOAD_BYTES,
+    timeoutMs: DOWNLOAD_TIMEOUT_MS,
+  });
   if (!res.ok) {
-    throw new Error(`download failed (${url}): ${res.status} ${res.statusText}`);
+    throw new Error(`download failed with HTTP ${res.status}`);
   }
-  await writeFile(dest, await readLimitedResponse(res, MAX_DOWNLOAD_BYTES));
-}
-
-async function fetchWithTimeout(url: string): Promise<Response> {
-  try {
-    return await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      (error.name === "AbortError" || error.name === "TimeoutError")
-    ) {
-      throw new Error(`download timed out after ${DOWNLOAD_TIMEOUT_MS}ms: ${url}`);
-    }
-    throw error;
-  }
-}
-
-export async function readLimitedResponse(
-  response: Response,
-  maxBytes: number,
-): Promise<Buffer> {
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > maxBytes) {
-    throw new Error(`download exceeds ${maxBytes} bytes`);
-  }
-  if (!response.body) return Buffer.alloc(0);
-
-  const chunks: Buffer[] = [];
-  const reader = response.body.getReader();
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = Buffer.from(value);
-      total += chunk.length;
-      if (total > maxBytes) {
-        await reader.cancel();
-        throw new Error(`download exceeds ${maxBytes} bytes`);
-      }
-      chunks.push(chunk);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return Buffer.concat(chunks, total);
+  await writeFile(dest, res.body);
 }
 
 async function mkdirp(dir: string): Promise<void> {

@@ -1,3 +1,4 @@
+import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
 import type { CheckResult, FileEntry, Finding, ScanContext } from "../types.js";
@@ -94,7 +95,7 @@ export async function classifyBinary(file: FileEntry): Promise<string | undefine
   }
 
   const head = await readHead(file.absPath);
-  if (!head) return undefined;
+  if (!head) return "file could not be inspected for executable content";
 
   const magic = detectMagic(head);
   if (magic) return `binary blob (${magic})`;
@@ -109,7 +110,8 @@ export async function classifyBinary(file: FileEntry): Promise<string | undefine
 async function readHead(file: string): Promise<Buffer | undefined> {
   let handle;
   try {
-    handle = await open(file, "r");
+    handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    if (!(await handle.stat()).isFile()) return undefined;
     const head = Buffer.alloc(8);
     const { bytesRead } = await handle.read(head, 0, head.length, 0);
     return head.subarray(0, bytesRead);

@@ -1,3 +1,4 @@
+import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
 import type { McpManifest, PackageJson, SkillManifest } from "./types.js";
@@ -27,6 +28,16 @@ export function parseSimpleYaml(src: string): Record<string, unknown> {
       currentArr.push(stripQuotes(listItem[1] ?? ""));
       continue;
     }
+    const nestedKv = raw.match(/^\s+([A-Za-z0-9_.\/-]+)\s*:\s*(.*)$/);
+    if (nestedKv && currentKey) {
+      const existing = result[currentKey];
+      const map: Record<string, unknown> = isRecord(existing) ? existing : {};
+      result[currentKey] = map;
+      const key = (nestedKv[1] ?? "").toLowerCase();
+      const nestedValue = (nestedKv[2] ?? "").trim();
+      map[key] = nestedValue === "" ? {} : parseYamlScalar(nestedValue);
+      continue;
+    }
     const kv = raw.match(/^([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
     if (!kv) continue;
     currentKey = (kv[1] ?? "").toLowerCase();
@@ -34,8 +45,12 @@ export function parseSimpleYaml(src: string): Record<string, unknown> {
     const value = (kv[2] ?? "").trim();
     const blockStyle = value.match(/^([|>])[+-]?$/)?.[1];
     if (value === "") {
-      currentArr = [];
-      result[currentKey] = currentArr;
+      if (currentKey === "metadata") {
+        result[currentKey] = {};
+      } else {
+        currentArr = [];
+        result[currentKey] = currentArr;
+      }
     } else if (value.startsWith("[") && value.endsWith("]")) {
       result[currentKey] = value
         .slice(1, -1)
@@ -50,7 +65,7 @@ export function parseSimpleYaml(src: string): Record<string, unknown> {
       }
       result[currentKey] = (blockStyle === "|" ? block.join("\n") : block.join(" ")).trim();
     } else {
-      result[currentKey] = stripQuotes(value);
+      result[currentKey] = parseYamlScalar(value);
     }
   }
   return result;
@@ -65,6 +80,17 @@ export function stripQuotes(s: string): string {
     return t.slice(1, -1);
   }
   return t;
+}
+
+function parseYamlScalar(value: string): unknown {
+  const stripped = stripQuotes(value);
+  if (stripped !== value.trim()) return stripped;
+  if (/^(?:true|false)$/i.test(stripped)) return stripped.toLowerCase() === "true";
+  if (/^(?:null|~)$/i.test(stripped)) return null;
+  if (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(stripped)) {
+    return Number(stripped);
+  }
+  return stripped;
 }
 
 export function hostFromUrl(raw: string): string | undefined {
@@ -94,11 +120,21 @@ export function domainsFromUnknown(value: unknown): string[] {
 
 export function parseSkillMarkdown(md: string): SkillManifest {
   const fm = parseFrontmatter(md);
-  const allowed = [
-    ...domainsFromUnknown(fm["allowed-domains"]),
-    ...domainsFromUnknown(fm["alloweddomains"]),
-    ...domainsFromUnknown(fm["allowed-hosts"]),
-  ];
+  const supportedFields = new Set([
+    "name",
+    "description",
+    "license",
+    "compatibility",
+    "metadata",
+    "allowed-tools",
+  ]);
+  const metadata = fm.metadata;
+  const metadataValid =
+    metadata === undefined ||
+    (isRecord(metadata) && Object.values(metadata).every((value) => typeof value === "string"));
+  const allowed = metadataValid && isRecord(metadata)
+    ? domainsFromUnknown(metadata["skillvet.allowed-domains"])
+    : [];
   const name = typeof fm.name === "string" ? fm.name.trim() : undefined;
   const description =
     typeof fm.description === "string" ? fm.description.trim() : undefined;
@@ -107,6 +143,8 @@ export function parseSkillMarkdown(md: string): SkillManifest {
     description: description || undefined,
     allowedDomains: unique(allowed),
     rawFrontmatter: Object.keys(fm).length > 0,
+    unexpectedFields: Object.keys(fm).filter((field) => !supportedFields.has(field)),
+    metadataValid,
   };
 }
 
@@ -133,8 +171,15 @@ export function parseServerJson(raw: unknown): boolean {
       server.description.trim() &&
       server.description.length <= 100 &&
       typeof server.version === "string" &&
-      server.version.trim() &&
-      server.version.length <= 255,
+      isExactVersion(server.version) &&
+      validOptionalString(server.title, 100) &&
+      validOptionalUri(server.websiteUrl) &&
+      validOptionalUri(server["$schema"]) &&
+      validRepository(server.repository) &&
+      validIcons(server.icons) &&
+      validPackages(server.packages) &&
+      validRemotes(server.remotes) &&
+      (server._meta === undefined || isRecord(server._meta)),
   );
 }
 
@@ -214,7 +259,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 async function readUtf8IfSmall(file: string): Promise<string | undefined> {
   let handle;
   try {
-    handle = await open(file, "r");
+    handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    if (!(await handle.stat()).isFile()) return undefined;
     const buffer = Buffer.alloc(MAX_TEXT_BYTES + 1);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
     if (bytesRead > MAX_TEXT_BYTES) return undefined;
@@ -228,4 +274,105 @@ async function readUtf8IfSmall(file: string): Promise<string | undefined> {
 
 function unique(items: string[]): string[] {
   return [...new Set(items.filter(Boolean))];
+}
+
+function isExactVersion(value: string): boolean {
+  const version = value.trim();
+  if (!version || version.length > 255 || /^latest$/i.test(version)) return false;
+  if (/[<>=~^*|]/.test(version) || /\s/.test(version)) return false;
+  return !/(?:^|\.)x(?:\.|$)/i.test(version);
+}
+
+function validOptionalString(value: unknown, maxLength: number): boolean {
+  return value === undefined || (
+    typeof value === "string" && value.length >= 1 && value.length <= maxLength
+  );
+}
+
+function validOptionalUri(value: unknown): boolean {
+  return value === undefined || (typeof value === "string" && isUri(value));
+}
+
+function isUri(value: string): boolean {
+  try {
+    return Boolean(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function validRepository(value: unknown): boolean {
+  if (value === undefined) return true;
+  return Boolean(
+    isRecord(value) &&
+      typeof value.url === "string" &&
+      isUri(value.url) &&
+      typeof value.source === "string" &&
+      value.source.trim() &&
+      (value.id === undefined || typeof value.id === "string") &&
+      (value.subfolder === undefined || typeof value.subfolder === "string"),
+  );
+}
+
+function validIcons(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  return value.every((icon) =>
+    Boolean(
+      isRecord(icon) &&
+        typeof icon.src === "string" &&
+        /^https:\/\//i.test(icon.src) &&
+        isUri(icon.src) &&
+        (icon.mimeType === undefined ||
+          ["image/png", "image/jpeg", "image/jpg", "image/svg+xml", "image/webp"].includes(
+            String(icon.mimeType),
+          )) &&
+        (icon.sizes === undefined ||
+          (Array.isArray(icon.sizes) &&
+            icon.sizes.every(
+              (size) => typeof size === "string" && /^(?:\d+x\d+|any)$/.test(size),
+            ))) &&
+        (icon.theme === undefined || icon.theme === "light" || icon.theme === "dark"),
+    ),
+  );
+}
+
+function validPackages(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  return value.every((pkg) =>
+    Boolean(
+      isRecord(pkg) &&
+        typeof pkg.registryType === "string" &&
+        pkg.registryType.trim() &&
+        typeof pkg.identifier === "string" &&
+        pkg.identifier.trim() &&
+        validTransport(pkg.transport, true) &&
+        (pkg.version === undefined ||
+          (typeof pkg.version === "string" && isExactVersion(pkg.version))) &&
+        validOptionalUri(pkg.registryBaseUrl) &&
+        (pkg.fileSha256 === undefined ||
+          (typeof pkg.fileSha256 === "string" && /^[a-f0-9]{64}$/.test(pkg.fileSha256))) &&
+        (pkg.environmentVariables === undefined || Array.isArray(pkg.environmentVariables)) &&
+        (pkg.packageArguments === undefined || Array.isArray(pkg.packageArguments)) &&
+        (pkg.runtimeArguments === undefined || Array.isArray(pkg.runtimeArguments)) &&
+        (pkg.runtimeHint === undefined || typeof pkg.runtimeHint === "string"),
+    ),
+  );
+}
+
+function validRemotes(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value) && value.every((remote) => validTransport(remote, false)));
+}
+
+function validTransport(value: unknown, local: boolean): boolean {
+  if (!isRecord(value) || typeof value.type !== "string") return false;
+  if (value.type === "stdio") return local;
+  if (value.type !== "sse" && value.type !== "streamable-http") return false;
+  return Boolean(
+    typeof value.url === "string" &&
+      /^(?:https?:\/\/[^\s]+|\{[a-zA-Z_][a-zA-Z0-9_]*\}[^\s]*)$/.test(value.url) &&
+      (value.headers === undefined || Array.isArray(value.headers)) &&
+      (value.variables === undefined || isRecord(value.variables)),
+  );
 }

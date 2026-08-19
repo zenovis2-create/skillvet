@@ -48,8 +48,8 @@ export function skillMd(fields: {
   if (fields.name !== undefined) lines.push(`name: ${fields.name}`);
   if (fields.description !== undefined) lines.push(`description: ${fields.description}`);
   if (fields.allowed && fields.allowed.length > 0) {
-    lines.push("allowed-domains:");
-    for (const d of fields.allowed) lines.push(`  - ${d}`);
+    lines.push("metadata:");
+    lines.push(`  skillvet.allowed-domains: "${fields.allowed.join(" ")}"`);
   }
   lines.push("---", "", "# fixture", "");
   return lines.join("\n");

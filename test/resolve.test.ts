@@ -1,21 +1,18 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
+  extractSafeTar,
   selectExtractedRoot,
   validateArchiveListing,
   validateArchiveMembers,
 } from "../src/archive.js";
 import { selectGitHubRef } from "../src/github.js";
-import {
-  readLimitedResponse,
-  resolveContainedPath,
-  resolveTarget,
-} from "../src/resolve.js";
+import { resolveContainedPath, resolveTarget } from "../src/resolve.js";
+import { collectLimitedBody, isBlockedAddress, redactTarget } from "../src/safe-http.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -39,11 +36,12 @@ describe("remote subdirectory resolution", () => {
 
 describe("remote archive limits", () => {
   it("rejects bodies larger than the configured byte limit", async () => {
-    const response = new Response(Buffer.from("123456789"));
-    await expect(readLimitedResponse(response, 8)).rejects.toThrow(/8 bytes/i);
-
-    const declared = new Response("", { headers: { "content-length": "9" } });
-    await expect(readLimitedResponse(declared, 8)).rejects.toThrow(/8 bytes/i);
+    async function* oversizedBody() {
+      yield Buffer.from("1234");
+      yield Buffer.from("56789");
+    }
+    await expect(collectLimitedBody(oversizedBody(), undefined, 8)).rejects.toThrow(/8 bytes/i);
+    await expect(collectLimitedBody([], "9", 8)).rejects.toThrow(/8 bytes/i);
   });
 
   it("rejects archive escapes without rejecting harmless double dots", () => {
@@ -75,24 +73,45 @@ describe("remote archive limits", () => {
     await writeFile(path.join(source, "skill", "SKILL.md"), "---\nname: skill\ndescription: demo\n---\n");
     await writeFile(path.join(source, "payload.js"), "process.env.GITHUB_TOKEN\n");
     await execFileAsync("tar", ["-czf", archive, "-C", source, "skill", "payload.js"]);
-    const body = await readFile(archive);
-    const server = createServer((_request, response) => response.end(body));
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const address = server.address();
-    if (!address || typeof address === "string") throw new Error("test server did not bind");
-    let resolved;
+    const unpack = path.join(base, "unpack");
     try {
-      resolved = await resolveTarget(`http://127.0.0.1:${address.port}/mixed.tar.gz`);
-      await expect(readFile(path.join(resolved.path, "payload.js"), "utf8")).resolves.toMatch(
+      await mkdir(unpack);
+      await extractSafeTar(archive, unpack);
+      const root = await selectExtractedRoot(unpack);
+      await expect(readFile(path.join(root, "payload.js"), "utf8")).resolves.toMatch(
         /GITHUB_TOKEN/,
       );
     } finally {
-      await resolved?.cleanup?.();
-      await new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      );
       await rm(base, { recursive: true, force: true });
     }
+  });
+
+  it("rejects loopback URLs before opening a connection", async () => {
+    await expect(resolveTarget("http://127.0.0.1:65535/payload.tgz")).rejects.toThrow(
+      /private|blocked|non-public/i,
+    );
+  });
+
+  it("redacts URL credentials, queries, and fragments", () => {
+    expect(redactTarget("https://user:pass@example.com/a?token=secret#part")).toBe(
+      "https://example.com/a",
+    );
+  });
+
+  it("classifies private, link-local, loopback, and mapped addresses as blocked", () => {
+    for (const address of [
+      "10.0.0.1",
+      "127.0.0.1",
+      "169.254.169.254",
+      "192.168.1.1",
+      "::1",
+      "fe80::1",
+      "::ffff:127.0.0.1",
+    ]) {
+      expect(isBlockedAddress(address)).toBe(true);
+    }
+    expect(isBlockedAddress("8.8.8.8")).toBe(false);
+    expect(isBlockedAddress("2606:4700:4700::1111")).toBe(false);
   });
 
   it("selects the longest matching GitHub ref before the subdirectory", () => {

@@ -35,7 +35,12 @@ export function checkPostinstall(ctx: ScanContext): CheckResult {
   }
 
   const hasBindingGyp = ctx.files.some((file) => file.relPath === "binding.gyp");
-  if (hasBindingGyp && !scripts.install && !scripts.preinstall) {
+  if (
+    hasBindingGyp &&
+    ctx.pkg?.gypfile !== false &&
+    !scripts.install &&
+    !scripts.preinstall
+  ) {
     findings.push({
       check: "postinstall",
       message: "binding.gyp triggers npm's implicit node-gyp rebuild install",

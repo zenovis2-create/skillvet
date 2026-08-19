@@ -46,6 +46,22 @@ export function checkManifest(ctx: ScanContext): CheckResult {
           score: 30,
         });
       }
+      if (ctx.skill.unexpectedFields.length > 0) {
+        findings.push({
+          check: "manifest",
+          message: `SKILL.md has unsupported top-level fields: ${ctx.skill.unexpectedFields.join(", ")}`,
+          file: "SKILL.md",
+          score: 30,
+        });
+      }
+      if (!ctx.skill.metadataValid) {
+        findings.push({
+          check: "manifest",
+          message: "SKILL.md metadata must map string keys to string values",
+          file: "SKILL.md",
+          score: 30,
+        });
+      }
     }
   }
 

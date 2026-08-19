@@ -61,6 +61,8 @@ export interface SkillManifest {
   description?: string;
   allowedDomains: string[];
   rawFrontmatter: boolean;
+  unexpectedFields: string[];
+  metadataValid: boolean;
 }
 
 export interface McpManifest {
@@ -81,6 +83,7 @@ export interface PackageJson {
   keywords?: string[];
   bin?: unknown;
   main?: string;
+  gypfile?: boolean;
 }
 
 export interface ScanContext {

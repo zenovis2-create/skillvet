@@ -51,4 +51,14 @@ describe("report", () => {
       "manifest",
     ]);
   });
+
+  it("redacts credential-bearing targets at the reporting boundary", async () => {
+    const result = await scan(fixture("green-skill"));
+    result.target = "https://user:pass@example.com/archive.tgz?token=secret#part";
+    const table = formatReport(result);
+    const json = formatReport(result, { json: true });
+    expect(table).toContain("https://example.com/archive.tgz");
+    expect(json).toContain("https://example.com/archive.tgz");
+    expect(`${table}\n${json}`).not.toMatch(/user|pass|token=secret|#part/);
+  });
 });

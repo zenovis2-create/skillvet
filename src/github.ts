@@ -1,3 +1,5 @@
+import { safeGet } from "./safe-http.js";
+
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 const MAX_API_BYTES = 2 * 1024 * 1024;
 
@@ -124,9 +126,9 @@ async function fetchGitHubRefs(
   const endpoint = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/matching-refs/${kind}/${encodeURIComponent(prefix)}`;
   const response = await fetchGitHubApi(endpoint);
   if (!response.ok) {
-    throw new Error(`GitHub ref lookup failed: ${response.status} ${response.statusText}`);
+    throw new Error(`GitHub ref lookup failed with HTTP ${response.status}`);
   }
-  const raw = parseJson(await readLimitedResponse(response));
+  const raw = parseJson(response.body);
   if (!Array.isArray(raw)) throw new Error("GitHub ref lookup returned invalid data");
   return raw.flatMap((item) =>
     isRecord(item) && typeof item.ref === "string" ? [item.ref] : [],
@@ -141,58 +143,21 @@ async function fetchGitHubCommitSha(
   const endpoint = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(ref)}`;
   const response = await fetchGitHubApi(endpoint);
   if (!response.ok) {
-    throw new Error(`GitHub commit lookup failed: ${response.status} ${response.statusText}`);
+    throw new Error(`GitHub commit lookup failed with HTTP ${response.status}`);
   }
-  const raw = parseJson(await readLimitedResponse(response));
+  const raw = parseJson(response.body);
   if (!isRecord(raw) || typeof raw.sha !== "string" || !/^[0-9a-f]{40}$/i.test(raw.sha)) {
     throw new Error("GitHub commit lookup returned invalid data");
   }
   return raw.sha;
 }
 
-async function fetchGitHubApi(url: string): Promise<Response> {
-  try {
-    return await fetch(url, {
-      headers: GITHUB_API_HEADERS,
-      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
-    });
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      (error.name === "AbortError" || error.name === "TimeoutError")
-    ) {
-      throw new Error(`GitHub API request timed out after ${DOWNLOAD_TIMEOUT_MS}ms`);
-    }
-    throw error;
-  }
-}
-
-async function readLimitedResponse(response: Response): Promise<Buffer> {
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_API_BYTES) {
-    throw new Error(`GitHub API response exceeds ${MAX_API_BYTES} bytes`);
-  }
-  if (!response.body) return Buffer.alloc(0);
-
-  const chunks: Buffer[] = [];
-  const reader = response.body.getReader();
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = Buffer.from(value);
-      total += chunk.length;
-      if (total > MAX_API_BYTES) {
-        await reader.cancel();
-        throw new Error(`GitHub API response exceeds ${MAX_API_BYTES} bytes`);
-      }
-      chunks.push(chunk);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return Buffer.concat(chunks, total);
+async function fetchGitHubApi(url: string) {
+  return safeGet(url, {
+    headers: GITHUB_API_HEADERS,
+    maxBytes: MAX_API_BYTES,
+    timeoutMs: DOWNLOAD_TIMEOUT_MS,
+  });
 }
 
 function parseJson(buffer: Buffer): unknown {

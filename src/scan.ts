@@ -7,6 +7,7 @@ import { checkScanCoverage } from "./checks/scan-coverage.js";
 import { checkSecrets } from "./checks/secrets.js";
 import { loadContext } from "./context.js";
 import { resolveTarget } from "./resolve.js";
+import { redactTarget } from "./safe-http.js";
 import { scoreFindings } from "./score.js";
 import {
   SCORE_RED,
@@ -34,7 +35,7 @@ export async function scan(target: string, options: ScanOptions = {}): Promise<S
     const { score, verdict } = scoreFindings(findings, options);
     return {
       version: VERSION,
-      target,
+      target: redactTarget(target),
       resolvedPath: resolved.path,
       kind: ctx.kind,
       verdict,

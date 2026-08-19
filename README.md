@@ -36,7 +36,7 @@ npx skillvet ./my-skill --strict
 | **postinstall** | npm install/package lifecycle hooks, including `preprepare` / `postprepare`, plus implicit `binding.gyp` node-gyp builds |
 | **obfuscation** | `Buffer.from(..., 'base64')`, `atob`, hex-string `eval`, minified sources |
 | **binaries** | executables and ELF / PE / Mach-O / WebAssembly magic, even when disguised with an asset extension |
-| **scan-coverage** | source-shaped files and filesystem entries that could not be inspected, including files over 1 MB and symbolic links |
+| **scan-coverage** | source-shaped files and filesystem entries that could not be inspected, including files over 1 MB, symbolic links, and excluded directories |
 | **manifest** | Agent Skills name/description rules and MCP `server.json`, `mcp.json`, or `package.json` entries |
 
 Declare hosts the skill says it needs to call:
@@ -45,8 +45,8 @@ Declare hosts the skill says it needs to call:
 ---
 name: ship-it
 description: Opens a pull request on GitHub.
-allowed-domains:
-  - api.github.com
+metadata:
+  skillvet.allowed-domains: "api.github.com"
 ---
 ```
 
@@ -151,7 +151,7 @@ npx skillvet ./my-skill --json
 
 ## Why now?
 
-In August 2026, [Island reported about 7,600 malicious GitHub repositories](https://www.island.io/blog/your-ai-can-be-given-secret-instructions-in-plain-english), including more than 800 posing as AI Skills or MCP servers.
+In July 2026, [Island reported about 7,600 malicious GitHub repositories](https://www.island.io/blog/your-ai-can-be-given-secret-instructions-in-plain-english), including more than 800 posing as AI Skills or MCP servers.
 
 Developers still drop random `SKILL.md` folders and MCP packages into agents with no review. skillvet is the five-second check before that happens.
 
@@ -159,7 +159,7 @@ It will not catch a clever enough adversary. It will catch the stuff that is alr
 
 ## Security model
 
-Remote downloads are capped at 25 MB, archive contents at 100 MB and 10,000 entries, and network/archive commands at 30 seconds. Archive paths and links are rejected before extraction. GitHub tree refs are resolved through GitHub's API to immutable commit SHAs, including branch names containing `/`; subdirectories must remain under the extracted repository root. Generic tar archives with mixed top-level entries are scanned from the full extraction root.
+Remote downloads are capped at 25 MB, archive contents at 100 MB and 10,000 entries, and network/archive commands at 30 seconds. Remote URLs and every redirect hop are limited to public HTTP(S) addresses, with the validated DNS address pinned to the connection; credentials, query strings, and fragments are removed from reports. Archive paths and links are rejected before extraction. GitHub tree refs are resolved through GitHub's API to immutable commit SHAs, including branch names containing `/`; subdirectories must remain under the extracted repository root. Generic tar archives with mixed top-level entries are scanned from the full extraction root.
 
 Remote tar/ZIP scans require the host `tar` and `unzip` commands (macOS or Linux).
 

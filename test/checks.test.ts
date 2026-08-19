@@ -1,7 +1,7 @@
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { checkBinariesAsync, detectMagic } from "../src/checks/binaries.js";
+import { checkBinariesAsync, classifyBinary, detectMagic } from "../src/checks/binaries.js";
 import { checkManifest } from "../src/checks/manifest.js";
 import { checkObfuscation, isMinified } from "../src/checks/obfuscation.js";
 import { checkPhoneHome } from "../src/checks/phone-home.js";
@@ -152,6 +152,25 @@ describe("scan coverage", () => {
       await tmp.cleanup();
     }
   });
+
+  it("surfaces excluded directories instead of silently returning GREEN", async () => {
+    const tmp = await withTempSkill({
+      "SKILL.md": skillMd({ name: "excluded-payload", description: "excluded payload" }),
+      "index.js": "import './node_modules/hidden.js';\n",
+      "node_modules/hidden.js": "process.env.GITHUB_TOKEN\n",
+    });
+    try {
+      expect(tmp.ctx.skippedFiles).toContainEqual(
+        expect.objectContaining({
+          relPath: "node_modules",
+          reason: expect.stringMatching(/excluded/i),
+        }),
+      );
+      expect((await scan(tmp.root)).verdict).not.toBe("GREEN");
+    } finally {
+      await tmp.cleanup();
+    }
+  });
 });
 
 describe("secret-access", () => {
@@ -257,6 +276,19 @@ describe("postinstall", () => {
       await tmp.cleanup();
     }
   });
+
+  it("honors package.json gypfile=false", async () => {
+    const tmp = await withTempSkill({
+      "SKILL.md": skillMd({ name: "no-native-build", description: "disables node-gyp" }),
+      "package.json": JSON.stringify({ name: "no-native-build", gypfile: false }),
+      "binding.gyp": JSON.stringify({ targets: [] }),
+    });
+    try {
+      expect(checkPostinstall(tmp.ctx).findings).toEqual([]);
+    } finally {
+      await tmp.cleanup();
+    }
+  });
 });
 
 describe("obfuscation", () => {
@@ -314,6 +346,16 @@ describe("binaries", () => {
 
   it("detects WebAssembly bytecode", () => {
     expect(detectMagic(Buffer.from([0x00, 0x61, 0x73, 0x6d]))).toBe("WebAssembly");
+  });
+
+  it("fails closed when a listed file changes before binary inspection", async () => {
+    await expect(
+      classifyBinary({
+        absPath: path.join(process.cwd(), "missing-during-inspection.data"),
+        relPath: "payload.data",
+        size: 1,
+      }),
+    ).resolves.toMatch(/could not be inspected/i);
   });
 });
 
@@ -384,6 +426,51 @@ describe("manifest", () => {
     }
   });
 
+  it("accepts namespaced metadata but flags unsupported top-level fields", async () => {
+    const valid = await withTempSkill({
+      "SKILL.md": skillMd({
+        name: "metadata-skill",
+        description: "uses namespaced metadata",
+        allowed: ["api.example.com"],
+      }),
+    });
+    const invalid = await withTempSkill({
+      "SKILL.md": [
+        "---",
+        "name: invalid-metadata",
+        "description: declares a non-standard top-level field",
+        "allowed-domains:",
+        "  - api.example.com",
+        "---",
+      ].join("\n"),
+    });
+    const invalidValue = await withTempSkill({
+      "SKILL.md": [
+        "---",
+        "name: invalid-value",
+        "description: uses non-string metadata",
+        "metadata:",
+        "  skillvet.allowed-domains: 42",
+        "---",
+      ].join("\n"),
+    });
+    try {
+      expect(valid.ctx.skill?.allowedDomains).toEqual(["api.example.com"]);
+      expect(checkManifest(valid.ctx).findings).toEqual([]);
+      expect(checkManifest(invalid.ctx).findings).toContainEqual(
+        expect.objectContaining({ message: expect.stringMatching(/unsupported.*allowed-domains/i) }),
+      );
+      expect((await scan(invalid.root)).verdict).not.toBe("GREEN");
+      expect(checkManifest(invalidValue.ctx).findings).toContainEqual(
+        expect.objectContaining({ message: expect.stringMatching(/metadata.*string/i) }),
+      );
+    } finally {
+      await valid.cleanup();
+      await invalid.cleanup();
+      await invalidValue.cleanup();
+    }
+  });
+
   it("validates package MCP markers and recognizes official server.json", async () => {
     const falseMarker = await withTempSkill({
       "package.json": JSON.stringify({ name: "not-mcp", mcp: false }),
@@ -418,6 +505,42 @@ describe("manifest", () => {
       await emptyServers.cleanup();
       await official.cleanup();
       await invalidOfficial.cleanup();
+    }
+  });
+
+  it("rejects MCP version ranges, latest, and invalid optional fields", async () => {
+    const fixtures = await Promise.all([
+      withTempSkill({
+        "server.json": JSON.stringify({
+          name: "io.github.example/range",
+          description: "range",
+          version: "^1.2.3",
+        }),
+      }),
+      withTempSkill({
+        "server.json": JSON.stringify({
+          name: "io.github.example/latest",
+          description: "latest",
+          version: "latest",
+        }),
+      }),
+      withTempSkill({
+        "server.json": JSON.stringify({
+          name: "io.github.example/site",
+          description: "site",
+          version: "1.2.3",
+          websiteUrl: 42,
+        }),
+      }),
+    ]);
+    try {
+      for (const fixture of fixtures) {
+        expect(checkManifest(fixture.ctx).findings).toContainEqual(
+          expect.objectContaining({ file: "server.json" }),
+        );
+      }
+    } finally {
+      await Promise.all(fixtures.map((fixture) => fixture.cleanup()));
     }
   });
 });
