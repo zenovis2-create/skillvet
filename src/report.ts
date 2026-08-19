@@ -28,7 +28,7 @@ export function toJson(result: ScanResult) {
   return {
     version: result.version,
     target: redactTarget(result.target),
-    resolvedPath: result.resolvedPath,
+    resolvedPath: redactUrls(result.resolvedPath),
     kind: result.kind,
     verdict: result.verdict,
     score: result.score,
@@ -71,7 +71,7 @@ function formatTable(result: ScanResult, color: boolean): string {
     lines.push(c.dim("findings"));
     for (const f of result.findings) {
       const safe = sanitizeFinding(f);
-      const loc = f.file ? `${f.file}${f.line ? `:${f.line}` : ""}` : "";
+      const loc = safe.file ? `${safe.file}${safe.line ? `:${safe.line}` : ""}` : "";
       const locBit = loc ? c.dim(`  ${loc}`) : "";
       lines.push(`  ${c.dim("•")} ${safe.message}${locBit}`);
     }
@@ -101,6 +101,7 @@ function notesFor(check: CheckResult): string {
 
 function sanitizeFinding(finding: Finding): Finding {
   const sanitized = { ...finding, message: redactUrls(finding.message) };
+  if (sanitized.file !== undefined) sanitized.file = redactUrls(sanitized.file);
   if (sanitized.evidence !== undefined) sanitized.evidence = redactUrls(sanitized.evidence);
   return sanitized;
 }

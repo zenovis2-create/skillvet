@@ -76,7 +76,7 @@ function normalizeYamlMaps(value: unknown, stack = new WeakSet<object>()): unkno
 
 export function hostFromUrl(raw: string): string | undefined {
   try {
-    const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+    const withScheme = /^(?:https?|wss?):/i.test(raw) ? raw : `https://${raw}`;
     const url = new URL(withScheme);
     return normalizeHost(url.hostname);
   } catch {

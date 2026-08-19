@@ -68,15 +68,17 @@ describe("report", () => {
       check: "phone-home",
       message: "endpoint ipc:opaque-user:opaque-pass@channel/run?key=secret#part",
       evidence: 'fetch("h\tttps://web-user:web-pass@example.com/a?token=secret#part")',
+      file: "ipc:file-user:file-pass@channel/run?file=secret#part.js",
       score: 40,
     };
+    result.resolvedPath = "/tmp/https:path-user:path-pass@example.com/a?path=secret#part";
     result.findings.push(finding);
     result.checks[0]?.findings.push(finding);
     const table = formatReport(result);
     const json = formatReport(result, { json: true });
     expect(`${table}\n${json}`).toContain("example.com/a");
     expect(`${table}\n${json}`).not.toMatch(
-      /opaque-user|opaque-pass|web-user|web-pass|key=secret|token=secret|#part/,
+      /opaque-user|opaque-pass|web-user|web-pass|file-user|file-pass|path-user|path-pass|key=secret|token=secret|file=secret|path=secret|#part/,
     );
   });
 });

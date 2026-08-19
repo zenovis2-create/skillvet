@@ -16,8 +16,55 @@ const DOCUMENT_EXT = new Set([
   ".txt",
 ]);
 
-const URL_RE = /(?:https?|wss?):\/\/[^\s"'`\\)<>]+/gi;
-const IPC_RE = /\b(?:ipc|unix|npipe):\/\/[^\s"'`\\)<>]+/gi;
+const URL_RE = /(?:https?|wss?):(?:\/\/)?[^\s"'`)<>]+/gi;
+const IPC_RE = /\b(?:ipc|unix|npipe):(?:\/\/)?[^\s"'`)<>]+/gi;
+const HASH_COMMENT_EXT = new Set([
+  ".py",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".fish",
+  ".rb",
+  ".pl",
+  ".r",
+  ".php",
+  ".ps1",
+  ".yml",
+  ".yaml",
+  ".toml",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".properties",
+  ".gyp",
+  ".gypi",
+  ".graphql",
+  ".coffee",
+]);
+const SLASH_COMMENT_EXT = new Set([
+  ".js",
+  ".ts",
+  ".mjs",
+  ".cjs",
+  ".jsx",
+  ".tsx",
+  ".java",
+  ".kt",
+  ".kts",
+  ".swift",
+  ".c",
+  ".h",
+  ".cpp",
+  ".hpp",
+  ".cs",
+  ".scala",
+  ".go",
+  ".rs",
+  ".php",
+  ".gradle",
+  ".vue",
+  ".svelte",
+]);
 
 const PRIMITIVES: { re: RegExp; message: string; score: number; langs?: Set<string> }[] = [
   {
@@ -77,7 +124,7 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
       if (
         !isSkillInstructions &&
         !DOCUMENT_EXT.has(ext) &&
-        (line.trimStart().startsWith("//") || line.trimStart().startsWith("#"))
+        isSourceComment(line, ext)
       ) {
         return;
       }
@@ -107,6 +154,14 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
   }
 
   return finish("phone-home", "phone-home", findings, 60);
+}
+
+function isSourceComment(line: string, ext: string): boolean {
+  const trimmed = line.trimStart();
+  return Boolean(
+    (trimmed.startsWith("#") && HASH_COMMENT_EXT.has(ext)) ||
+      (trimmed.startsWith("//") && SLASH_COMMENT_EXT.has(ext)),
+  );
 }
 
 function collectUrls(
