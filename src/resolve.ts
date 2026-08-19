@@ -1,19 +1,25 @@
-import { spawn } from "node:child_process";
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { extractSafeTar, extractSafeZip, selectExtractedRoot } from "./archive.js";
+import { parseGitHubTarget, resolveGitHubTreeReference } from "./github.js";
+import { safeGet } from "./safe-http.js";
 
 export interface ResolvedTarget {
   path: string;
   cleanup?: () => Promise<void>;
 }
 
-const GITHUB =
-  /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)(?:\/(?:tree|blob)\/([^/]+)(?:\/(.*))?)?(?:\/)?(?:\.git)?$/i;
+const DOWNLOAD_TIMEOUT_MS = 30_000;
+const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
 
 export async function resolveTarget(target: string): Promise<ResolvedTarget> {
-  if (/^https?:\/\//i.test(target)) {
-    return fetchRemote(target);
+  const remoteTarget = target
+    .replace(/[\u0009\u000a\u000d]/g, "")
+    .replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "");
+  if (/^https?:/i.test(remoteTarget)) {
+    if (!/^https?:\/\//i.test(remoteTarget)) throw new Error("invalid remote URL");
+    return fetchRemote(remoteTarget);
   }
   const resolved = path.resolve(target);
   try {
@@ -31,44 +37,60 @@ async function fetchRemote(url: string): Promise<ResolvedTarget> {
   };
 
   try {
-    const gh = url.match(GITHUB);
+    const gh = parseGitHubTarget(url);
     if (gh) {
-      const owner = gh[1] ?? "";
-      const repo = (gh[2] ?? "").replace(/\.git$/i, "");
-      const ref = gh[3] || "HEAD";
-      const subdir = (gh[4] ?? "").replace(/\/$/, "");
-      const tarball = `https://codeload.github.com/${owner}/${repo}/tar.gz/${ref}`;
+      let ref = "HEAD";
+      let subdir = "";
+      if (gh.treeParts) {
+        const resolvedRef = await resolveGitHubTreeReference(
+          gh.owner,
+          gh.repo,
+          gh.treeParts,
+        );
+        ref = resolvedRef.sha;
+        subdir = resolvedRef.subdir;
+      }
+      const tarball = `https://codeload.github.com/${encodeURIComponent(gh.owner)}/${encodeURIComponent(gh.repo)}/tar.gz/${encodeURIComponent(ref)}`;
       const tarPath = path.join(dest, "src.tar.gz");
       await downloadToFile(tarball, tarPath);
-      await assertSafeTar(tarPath);
       const unpack = path.join(dest, "unpack");
       await mkdirp(unpack);
-      await run("tar", ["-xzf", tarPath, "-C", unpack]);
-      const root = await firstChildDir(unpack);
-      return { path: subdir ? path.join(root, subdir) : root, cleanup };
+      await extractSafeTar(tarPath, unpack);
+      const extractedRoot = await selectExtractedRoot(unpack);
+      let root = extractedRoot;
+      if (path.dirname(extractedRoot) === unpack) {
+        root = path.join(unpack, gh.repo);
+        await rename(extractedRoot, root);
+      }
+      return {
+        path: subdir ? await resolveContainedPath(root, subdir) : root,
+        cleanup,
+      };
     }
 
-    const res = await fetch(url);
+    const res = await safeGet(url, {
+      maxBytes: MAX_DOWNLOAD_BYTES,
+      timeoutMs: DOWNLOAD_TIMEOUT_MS,
+    });
     if (!res.ok) {
-      throw new Error(`download failed: ${res.status} ${res.statusText}`);
+      throw new Error(`download failed with HTTP ${res.status}`);
     }
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = res.body;
     const name = guessName(url);
     if (isGzip(buf) || name.endsWith(".tar.gz") || name.endsWith(".tgz")) {
       const tarPath = path.join(dest, "src.tar.gz");
       await writeFile(tarPath, buf);
-      await assertSafeTar(tarPath);
       const unpack = path.join(dest, "unpack");
       await mkdirp(unpack);
-      await run("tar", ["-xzf", tarPath, "-C", unpack]);
-      return { path: await firstChildDir(unpack), cleanup };
+      await extractSafeTar(tarPath, unpack);
+      return { path: await selectExtractedRoot(unpack), cleanup };
     }
     if (isZip(buf) || name.endsWith(".zip")) {
       const zipPath = path.join(dest, "src.zip");
       await writeFile(zipPath, buf);
       const unpack = path.join(dest, "unpack");
       await mkdirp(unpack);
-      await run("unzip", ["-q", zipPath, "-d", unpack]);
+      await extractSafeZip(zipPath, unpack);
       return { path: unpack, cleanup };
     }
     await writeFile(path.join(dest, name || "SKILL.md"), buf);
@@ -79,30 +101,45 @@ async function fetchRemote(url: string): Promise<ResolvedTarget> {
   }
 }
 
+export async function resolveContainedPath(
+  root: string,
+  subdir: string,
+): Promise<string> {
+  const rootPath = await realpath(root);
+  const candidate = path.resolve(rootPath, subdir);
+  if (!isWithin(rootPath, candidate)) {
+    throw new Error(`refusing remote subdirectory outside target: ${subdir}`);
+  }
+
+  let resolved: string;
+  try {
+    resolved = await realpath(candidate);
+  } catch {
+    throw new Error(`remote subdirectory not found: ${subdir}`);
+  }
+  if (!isWithin(rootPath, resolved)) {
+    throw new Error(`refusing remote subdirectory outside target: ${subdir}`);
+  }
+  return resolved;
+}
+
+function isWithin(root: string, candidate: string): boolean {
+  const rel = path.relative(root, candidate);
+  return (
+    rel === "" ||
+    (!rel.startsWith(`..${path.sep}`) && rel !== ".." && !path.isAbsolute(rel))
+  );
+}
+
 async function downloadToFile(url: string, dest: string): Promise<void> {
-  const res = await fetch(url);
+  const res = await safeGet(url, {
+    maxBytes: MAX_DOWNLOAD_BYTES,
+    timeoutMs: DOWNLOAD_TIMEOUT_MS,
+  });
   if (!res.ok) {
-    throw new Error(`download failed (${url}): ${res.status} ${res.statusText}`);
+    throw new Error(`download failed with HTTP ${res.status}`);
   }
-  await writeFile(dest, Buffer.from(await res.arrayBuffer()));
-}
-
-async function assertSafeTar(tarPath: string): Promise<void> {
-  const listing = await run("tar", ["-tzf", tarPath]);
-  for (const member of listing.split("\n")) {
-    if (!member) continue;
-    if (member.startsWith("/") || member.includes("..")) {
-      throw new Error(`refusing archive member outside target: ${member}`);
-    }
-  }
-}
-
-async function firstChildDir(dir: string): Promise<string> {
-  const { readdir } = await import("node:fs/promises");
-  const entries = await readdir(dir, { withFileTypes: true });
-  const dirs = entries.filter((e) => e.isDirectory());
-  if (dirs.length === 1 && dirs[0]) return path.join(dir, dirs[0].name);
-  return dir;
+  await writeFile(dest, res.body);
 }
 
 async function mkdirp(dir: string): Promise<void> {
@@ -127,24 +164,3 @@ function guessName(url: string): string {
     return "download";
   }
 }
-
-function run(cmd: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let out = "";
-    let err = "";
-    child.stdout.on("data", (c: Buffer) => {
-      out += c.toString();
-    });
-    child.stderr.on("data", (c: Buffer) => {
-      err += c.toString();
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve(out);
-      else reject(new Error(`${cmd} ${args.join(" ")} failed (${code}): ${err.trim()}`));
-    });
-  });
-}
-
-

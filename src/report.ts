@@ -1,5 +1,7 @@
 import { exitCodeFor } from "./score.js";
+import { redactTarget } from "./safe-http.js";
 import { VERSION, type CheckResult, type ScanResult, type Verdict } from "./types.js";
+import { redactFinding, redactUrls } from "./walk.js";
 
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
@@ -25,8 +27,8 @@ export function formatReport(result: ScanResult, options: ReportOptions = {}): s
 export function toJson(result: ScanResult) {
   return {
     version: result.version,
-    target: result.target,
-    resolvedPath: result.resolvedPath,
+    target: redactUrls(redactTarget(result.target)),
+    resolvedPath: redactUrls(result.resolvedPath),
     kind: result.kind,
     verdict: result.verdict,
     score: result.score,
@@ -36,16 +38,18 @@ export function toJson(result: ScanResult) {
     checks: result.checks.map((c) => ({
       id: c.id,
       score: c.score,
-      findings: c.findings,
+      findings: c.findings.map(redactFinding),
     })),
-    findings: result.findings,
+    findings: result.findings.map(redactFinding),
   };
 }
 
 function formatTable(result: ScanResult, color: boolean): string {
   const c = paint(color);
   const lines: string[] = [];
-  lines.push(`${c.bold("skillvet")} ${c.dim(VERSION)}   scan  ${result.target}`);
+  lines.push(
+    `${c.bold("skillvet")} ${c.dim(VERSION)}   scan  ${redactUrls(redactTarget(result.target))}`,
+  );
   lines.push(`${c.dim("kind")} ${result.kind}${result.strict ? c.dim("   --strict") : ""}`);
   lines.push("");
   lines.push(c.dim(row("check", "pts", "status", "notes")));
@@ -68,9 +72,10 @@ function formatTable(result: ScanResult, color: boolean): string {
   if (result.findings.length > 0) {
     lines.push(c.dim("findings"));
     for (const f of result.findings) {
-      const loc = f.file ? `${f.file}${f.line ? `:${f.line}` : ""}` : "";
+      const safe = redactFinding(f);
+      const loc = safe.file ? `${safe.file}${safe.line ? `:${safe.line}` : ""}` : "";
       const locBit = loc ? c.dim(`  ${loc}`) : "";
-      lines.push(`  ${c.dim("•")} ${f.message}${locBit}`);
+      lines.push(`  ${c.dim("•")} ${safe.message}${locBit}`);
     }
     lines.push("");
   }
@@ -91,8 +96,9 @@ function notesFor(check: CheckResult): string {
   if (check.findings.length === 0) return "—";
   const first = check.findings[0];
   if (!first) return "—";
-  if (check.findings.length === 1) return first.message;
-  return `${first.message}  (+${check.findings.length - 1} more)`;
+  const message = redactUrls(first.message);
+  if (check.findings.length === 1) return message;
+  return `${message}  (+${check.findings.length - 1} more)`;
 }
 
 function row(a: string, b: string, d: string, e: string): string {

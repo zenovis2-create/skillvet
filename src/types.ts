@@ -1,4 +1,4 @@
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.1";
 
 export const SCORE_YELLOW = 30;
 export const SCORE_RED = 70;
@@ -51,11 +51,19 @@ export interface FileEntry {
   size: number;
 }
 
+export interface SkippedFile {
+  relPath: string;
+  reason: string;
+}
+
 export interface SkillManifest {
   name?: string;
   description?: string;
   allowedDomains: string[];
   rawFrontmatter: boolean;
+  unexpectedFields: string[];
+  invalidFields: string[];
+  metadataValid: boolean;
 }
 
 export interface McpManifest {
@@ -67,7 +75,7 @@ export interface PackageJson {
   name?: string;
   version?: string;
   description?: string;
-  scripts?: Record<string, string>;
+  scripts?: unknown;
   homepage?: string;
   repository?: string | { url?: string; type?: string };
   mcp?: unknown;
@@ -76,6 +84,7 @@ export interface PackageJson {
   keywords?: string[];
   bin?: unknown;
   main?: string;
+  gypfile?: boolean;
 }
 
 export interface ScanContext {
@@ -86,4 +95,5 @@ export interface ScanContext {
   pkg?: PackageJson;
   files: FileEntry[];
   textFiles: TextFile[];
+  skippedFiles: SkippedFile[];
 }

@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open } from "node:fs/promises";
 import path from "node:path";
 import type { CheckResult, FileEntry, Finding, ScanContext } from "../types.js";
 import { finish } from "./manifest.js";
@@ -16,6 +17,7 @@ const EXEC_EXT = new Set([
   ".msi",
   ".dmg",
   ".app",
+  ".wasm",
 ]);
 
 const ASSET_EXT = new Set([
@@ -86,26 +88,38 @@ export async function checkBinariesAsync(ctx: ScanContext): Promise<CheckResult>
 export async function classifyBinary(file: FileEntry): Promise<string | undefined> {
   const base = path.basename(file.relPath).toLowerCase();
   const ext = path.extname(file.relPath).toLowerCase();
-  if (TEXT_NAMES.has(base) || ASSET_EXT.has(ext)) return undefined;
 
   if (EXEC_EXT.has(ext)) {
     return `executable-shaped file (${ext})`;
   }
 
-  let head: Buffer;
-  try {
-    head = (await readFile(file.absPath)).subarray(0, 8);
-  } catch {
-    return undefined;
-  }
+  const head = await readHead(file.absPath);
+  if (!head) return "file could not be inspected for executable content";
 
   const magic = detectMagic(head);
   if (magic) return `binary blob (${magic})`;
 
+  if (TEXT_NAMES.has(base)) return undefined;
+  if (ASSET_EXT.has(ext)) return undefined;
   if (!ext && looksBinary(head)) {
     return "extensionless binary blob";
   }
   return undefined;
+}
+
+async function readHead(file: string): Promise<Buffer | undefined> {
+  let handle;
+  try {
+    handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    if (!(await handle.stat()).isFile()) return undefined;
+    const head = Buffer.alloc(8);
+    const { bytesRead } = await handle.read(head, 0, head.length, 0);
+    return head.subarray(0, bytesRead);
+  } catch {
+    return undefined;
+  } finally {
+    await handle?.close();
+  }
 }
 
 export function detectMagic(head: Buffer): string | undefined {
@@ -125,6 +139,9 @@ export function detectMagic(head: Buffer): string | undefined {
     const b1 = head[1];
     const b2 = head[2];
     const b3 = head[3];
+    if (b0 === 0x00 && b1 === 0x61 && b2 === 0x73 && b3 === 0x6d) {
+      return "WebAssembly";
+    }
     if (
       (b0 === 0xcf && b1 === 0xfa && b2 === 0xed && b3 === 0xfe) ||
       (b0 === 0xce && b1 === 0xfa && b2 === 0xed && b3 === 0xfe) ||

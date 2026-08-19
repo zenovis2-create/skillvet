@@ -1,27 +1,87 @@
 import path from "node:path";
 import { hostFromUrl, normalizeHost } from "../manifest.js";
 import type { CheckResult, Finding, ScanContext, TextFile } from "../types.js";
-import { clip, eachLine } from "../walk.js";
+import {
+  clip,
+  createFindingClipper,
+  normalizeUrlText,
+  redactUrls,
+} from "../walk.js";
 import { finish } from "./manifest.js";
 
-const CODE_EXT = new Set([
+const DOC_FILES = new Set(["readme.md", "changelog.md", "license", "license.md"]);
+const DOCUMENT_EXT = new Set([
+  "",
+  ".md",
+  ".markdown",
+  ".mdown",
+  ".mdx",
+  ".mkd",
+  ".mkdn",
+  ".txt",
+]);
+
+const URL_RE =
+  /(?:https?|wss?):(?:\/\/)?(?:(?!\b(?:https?|wss?|ipc|unix|npipe):)[^"'`])+/gi;
+const IPC_RE =
+  /\b(?:ipc|unix|npipe):(?:\/\/)?(?:(?!\b(?:https?|wss?|ipc|unix|npipe):)[^"'`])+/gi;
+const HASH_COMMENT_EXT = new Set([
+  ".py",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".fish",
+  ".rb",
+  ".pl",
+  ".r",
+  ".php",
+  ".ps1",
+  ".yml",
+  ".yaml",
+  ".toml",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".properties",
+  ".gyp",
+  ".gypi",
+  ".graphql",
+  ".coffee",
+]);
+const SLASH_COMMENT_EXT = new Set([
   ".js",
   ".ts",
   ".mjs",
   ".cjs",
   ".jsx",
   ".tsx",
-  ".py",
-  ".sh",
-  ".bash",
-  ".zsh",
-  ".json",
+  ".java",
+  ".kt",
+  ".kts",
+  ".swift",
+  ".c",
+  ".h",
+  ".cpp",
+  ".hpp",
+  ".cs",
+  ".scala",
+  ".go",
+  ".rs",
+  ".php",
+  ".gradle",
+  ".vue",
+  ".svelte",
 ]);
-
-const DOC_FILES = new Set(["skill.md", "readme.md", "changelog.md", "license", "license.md"]);
-
-const URL_RE = /(?:https?|wss?):\/\/[^\s"'`\\)<>]+/gi;
-const IPC_RE = /\b(?:ipc|unix|npipe):\/\/[^\s"'`\\)<>]+/gi;
+const ECMASCRIPT_EXT = new Set([
+  ".js",
+  ".ts",
+  ".mjs",
+  ".cjs",
+  ".jsx",
+  ".tsx",
+  ".vue",
+  ".svelte",
+]);
 
 const PRIMITIVES: { re: RegExp; message: string; score: number; langs?: Set<string> }[] = [
   {
@@ -73,15 +133,92 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
   const seenPrim = new Set<string>();
 
   for (const file of ctx.textFiles) {
-    if (!isCodeFile(file.relPath)) continue;
+    if (!isScannableFile(file)) continue;
     const ext = path.extname(file.relPath).toLowerCase();
+    const isSkillInstructions = path.basename(file.relPath).toLowerCase() === "skill.md";
+    const isCSharp = ext === ".cs";
+    const urlTextOptions = {
+      unicodeLineTerminators: isCSharp
+        ? "\u0085\u2028\u2029"
+        : ECMASCRIPT_EXT.has(ext)
+          ? "\u2028\u2029"
+          : "",
+      backslashContinuations: !isCSharp,
+    };
+    const sourceLines = file.content.split(
+      isCSharp
+        ? /\r\n|\r|\n|\u0085|\u2028|\u2029/
+        : ECMASCRIPT_EXT.has(ext)
+          ? /\r\n|\r|\n|\u2028|\u2029/
+          : /\r\n|\r|\n/,
+    );
+    const clipLine = createFindingClipper(file.content, urlTextOptions);
 
-    eachLine(file.content, (line, lineNo) => {
-      if (line.trimStart().startsWith("//") || line.trimStart().startsWith("#")) return;
+    if (!SKIP_URL_FILES.has(path.basename(file.relPath))) {
+      const shouldSkipLine = (lineNo: number): boolean =>
+        !isSkillInstructions &&
+        !DOCUMENT_EXT.has(ext) &&
+        isSourceComment(sourceLines[lineNo - 1] ?? "", ext);
+      for (let i = 0; i < sourceLines.length; i++) {
+        const line = sourceLines[i] ?? "";
+        const lineNo = i + 1;
+        const lineView = normalizeUrlText(line, urlTextOptions);
+        const lineNumbers = new Array<number>(lineView.text.length).fill(lineNo);
+        collectUrls(
+          lineView.text,
+          URL_RE,
+          file,
+          lineNumbers,
+          shouldSkipLine,
+          allowed,
+          seenHosts,
+          findings,
+        );
+        collectUrls(
+          lineView.text,
+          IPC_RE,
+          file,
+          lineNumbers,
+          shouldSkipLine,
+          allowed,
+          seenHosts,
+          findings,
+          true,
+        );
+      }
+      const urlView = normalizeUrlText(file.content, urlTextOptions);
+      collectUrls(
+        urlView.text,
+        URL_RE,
+        file,
+        urlView.lineNumbers,
+        shouldSkipLine,
+        allowed,
+        seenHosts,
+        findings,
+      );
+      collectUrls(
+        urlView.text,
+        IPC_RE,
+        file,
+        urlView.lineNumbers,
+        shouldSkipLine,
+        allowed,
+        seenHosts,
+        findings,
+        true,
+      );
+    }
 
-      if (!SKIP_URL_FILES.has(path.basename(file.relPath))) {
-        collectUrls(line, URL_RE, file, lineNo, allowed, seenHosts, findings);
-        collectUrls(line, IPC_RE, file, lineNo, allowed, seenHosts, findings, true);
+    for (let i = 0; i < sourceLines.length; i++) {
+      const line = sourceLines[i] ?? "";
+      const lineNo = i + 1;
+      if (
+        !isSkillInstructions &&
+        !DOCUMENT_EXT.has(ext) &&
+        isSourceComment(line, ext)
+      ) {
+        continue;
       }
 
       for (const prim of PRIMITIVES) {
@@ -95,21 +232,30 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
           message: prim.message,
           file: file.relPath,
           line: lineNo,
-          evidence: clip(line),
+          evidence: clipLine(line, lineNo),
           score: prim.score,
         });
       }
-    });
+    }
   }
 
   return finish("phone-home", "phone-home", findings, 60);
 }
 
+function isSourceComment(line: string, ext: string): boolean {
+  const trimmed = line.trimStart();
+  return Boolean(
+    (trimmed.startsWith("#") && HASH_COMMENT_EXT.has(ext)) ||
+      (trimmed.startsWith("//") && SLASH_COMMENT_EXT.has(ext)),
+  );
+}
+
 function collectUrls(
-  line: string,
+  content: string,
   re: RegExp,
   file: TextFile,
-  lineNo: number,
+  lineNumbers: number[],
+  shouldSkipLine: (lineNo: number) => boolean,
   allowed: Set<string>,
   seenHosts: Set<string>,
   findings: Finding[],
@@ -117,44 +263,46 @@ function collectUrls(
 ): void {
   re.lastIndex = 0;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(line))) {
+  while ((match = re.exec(content))) {
     const raw = stripTrailingPunct(match[0] ?? "");
+    const startLine = lineNumbers[match.index] ?? 1;
+    const endLine = lineNumbers[match.index + Math.max(raw.length - 1, 0)] ?? startLine;
+    if (startLine === endLine && shouldSkipLine(startLine)) continue;
     if (ipc) {
       const key = `ipc:${raw}`;
       if (seenHosts.has(key)) continue;
       seenHosts.add(key);
       findings.push({
         check: "phone-home",
-        message: `outbound IPC endpoint ${raw}`,
+        message: `outbound IPC endpoint ${redactUrls(raw)}`,
         file: file.relPath,
-        line: lineNo,
-        evidence: clip(line),
-        score: 25,
+        line: startLine,
+        evidence: clip(raw),
+        score: 30,
       });
       continue;
     }
     const host = hostFromUrl(raw);
     if (!host) continue;
-    if (allowed.has(host)) continue;
     if (seenHosts.has(host)) continue;
     seenHosts.add(host);
+    const declared = allowed.has(host);
     findings.push({
       check: "phone-home",
-      message: `undeclared outbound host ${host}`,
+      message: `${declared ? "declared" : "undeclared"} outbound host ${host}`,
       file: file.relPath,
-      line: lineNo,
+      line: startLine,
       evidence: clip(raw),
-      score: 40,
+      score: declared ? 35 : 40,
     });
   }
 }
 
-function isCodeFile(relPath: string): boolean {
-  const base = path.basename(relPath).toLowerCase();
-  if (DOC_FILES.has(base)) return false;
-  return CODE_EXT.has(path.extname(relPath).toLowerCase());
+function isScannableFile(file: TextFile): boolean {
+  const base = path.basename(file.relPath).toLowerCase();
+  return !DOC_FILES.has(base);
 }
 
 function stripTrailingPunct(s: string): string {
-  return s.replace(/[.,;:!?)\]]+$/g, "");
+  return s.replace(/[.,;:!?)\]}><(]+$/g, "");
 }

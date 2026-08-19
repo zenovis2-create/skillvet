@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { CheckResult, Finding, ScanContext } from "../types.js";
 
 export function checkManifest(ctx: ScanContext): CheckResult {
@@ -8,7 +9,7 @@ export function checkManifest(ctx: ScanContext): CheckResult {
   if (!hasSkillFile && !hasMcp) {
     findings.push({
       check: "manifest",
-      message: "no SKILL.md or MCP manifest (mcp.json / package.json mcp entry)",
+      message: "no SKILL.md or MCP manifest (server.json / mcp.json / package.json entry)",
       score: 40,
     });
   }
@@ -22,20 +23,51 @@ export function checkManifest(ctx: ScanContext): CheckResult {
         score: 40,
       });
     } else {
-      if (!ctx.skill.name) {
+      if (!isValidSkillName(ctx.skill.name)) {
         findings.push({
           check: "manifest",
-          message: "SKILL.md frontmatter is missing name",
+          message: "SKILL.md frontmatter has an invalid name",
           file: "SKILL.md",
-          score: 20,
+          score: 30,
+        });
+      } else if (ctx.skill.name !== path.basename(ctx.root)) {
+        findings.push({
+          check: "manifest",
+          message: "SKILL.md name must match its parent directory",
+          file: "SKILL.md",
+          score: 30,
         });
       }
-      if (!ctx.skill.description) {
+      if (!isValidSkillDescription(ctx.skill.description)) {
         findings.push({
           check: "manifest",
-          message: "SKILL.md frontmatter is missing description",
+          message: "SKILL.md frontmatter has an invalid description",
           file: "SKILL.md",
-          score: 20,
+          score: 30,
+        });
+      }
+      if (ctx.skill.unexpectedFields.length > 0) {
+        findings.push({
+          check: "manifest",
+          message: `SKILL.md has unsupported top-level fields: ${ctx.skill.unexpectedFields.join(", ")}`,
+          file: "SKILL.md",
+          score: 30,
+        });
+      }
+      if (ctx.skill.invalidFields.length > 0) {
+        findings.push({
+          check: "manifest",
+          message: `SKILL.md has invalid optional fields: ${ctx.skill.invalidFields.join(", ")}`,
+          file: "SKILL.md",
+          score: 30,
+        });
+      }
+      if (!ctx.skill.metadataValid) {
+        findings.push({
+          check: "manifest",
+          message: "SKILL.md metadata must map string keys to string values",
+          file: "SKILL.md",
+          score: 30,
         });
       }
     }
@@ -53,6 +85,14 @@ export function checkManifest(ctx: ScanContext): CheckResult {
   return finish("manifest", "manifest", findings, 40);
 }
 
+function isValidSkillName(name: string | undefined): boolean {
+  return Boolean(name && name.length <= 64 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name));
+}
+
+function isValidSkillDescription(description: string | undefined): boolean {
+  return Boolean(description && description.length <= 1024);
+}
+
 export function finish(
   id: string,
   title: string,
@@ -63,15 +103,23 @@ export function finish(
   if (total <= max) {
     return { id, title, score: total, findings };
   }
-  const scale = max / total;
-  const scaled = findings.map((f) => ({
-    ...f,
-    score: Math.max(1, Math.round(f.score * scale)),
+  const exact = findings.map((finding, index) => {
+    const score = (finding.score * max) / total;
+    return { index, floor: Math.floor(score), fraction: score - Math.floor(score) };
+  });
+  const remainder = max - exact.reduce((sum, item) => sum + item.floor, 0);
+  const order = [...exact].sort(
+    (a, b) => b.fraction - a.fraction || a.index - b.index,
+  );
+  const bonuses = new Set(order.slice(0, remainder).map((item) => item.index));
+  const scaled = findings.map((finding, index) => ({
+    ...finding,
+    score: exact[index]!.floor + (bonuses.has(index) ? 1 : 0),
   }));
   return {
     id,
     title,
-    score: Math.min(max, scaled.reduce((a, f) => a + f.score, 0)),
+    score: scaled.reduce((a, f) => a + f.score, 0),
     findings: scaled,
   };
 }

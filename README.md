@@ -3,14 +3,15 @@
 Supply-chain security scanner for AI agent skills and MCP servers. One command. A **RED / YELLOW / GREEN** verdict.
 
 [![stars](https://img.shields.io/github/stars/zenovis2-create/skillvet?style=flat)](https://github.com/zenovis2-create/skillvet)
-[![CI](https://img.shields.io/github/actions/workflow/status/skillvet/skillvet/ci.yml?label=CI)](https://github.com/zenovis2-create/skillvet/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/zenovis2-create/skillvet/ci.yml?label=CI)](https://github.com/zenovis2-create/skillvet/actions)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
 ```bash
 npx skillvet ./my-skill
 ```
 
-Zero runtime dependencies. Node 20+. Does not execute the skill.
+Node 22+. Uses the zero-transitive-dependency `yaml` parser for standards-compliant
+frontmatter validation. Does not execute the skill.
 
 ## Install
 
@@ -31,25 +32,26 @@ npx skillvet ./my-skill --strict
 
 | Check | What gets flagged |
 | --- | --- |
-| **phone-home** | `http(s)` / `ws(s)` / IPC URLs to hosts not declared in the skill, plus `child_process`, `eval(`, `Function(` |
-| **secret-access** | `~/.ssh`, `~/.aws`, `~/.config`, `*_TOKEN`, `*_KEY`, `GITHUB_TOKEN` |
-| **postinstall** | npm `preinstall` / `install` / `postinstall` — automatic **YELLOW** at least |
+| **phone-home** | `http(s)` / `ws(s)` / IPC URLs in source and `SKILL.md`, plus `child_process`, `eval(`, `Function(` |
+| **secret-access** | `~/.ssh`, `~/.aws`, `~/.config`, `*_TOKEN`, `*_KEY`, `GITHUB_TOKEN`, including agent instructions |
+| **postinstall** | npm install/package lifecycle hooks, including `preprepare` / `postprepare`, plus implicit `binding.gyp` node-gyp builds |
 | **obfuscation** | `Buffer.from(..., 'base64')`, `atob`, hex-string `eval`, minified sources |
-| **binaries** | non-whitelisted executables (ELF / PE / Mach-O / `.exe` / `.so` / …) |
-| **manifest** | skills need `SKILL.md` with `name` + `description`; MCP servers need a valid `mcp.json` or `package.json` MCP entry |
+| **binaries** | executables and ELF / PE / Mach-O / WebAssembly magic, even when disguised with an asset extension |
+| **scan-coverage** | source-shaped files and filesystem entries that could not be inspected, including files over 1 MB, symbolic links, and excluded directories |
+| **manifest** | Agent Skills name/description rules and MCP `server.json`, `mcp.json`, or `package.json` entries |
 
-Declare hosts the skill is allowed to call:
+Declare hosts the skill says it needs to call:
 
 ```yaml
 ---
 name: ship-it
 description: Opens a pull request on GitHub.
-allowed-domains:
-  - api.github.com
+metadata:
+  skillvet.allowed-domains: "api.github.com"
 ---
 ```
 
-`package.json` `homepage` / `repository` count as declared too.
+Declarations are attacker-controlled metadata, so a declared host remains a 35-point **YELLOW** finding instead of being hidden. Secret access combined with any outbound host is scored **RED**. `package.json` `homepage` and `repository` values are never treated as network policy.
 
 ## Scoring
 
@@ -68,7 +70,7 @@ Weighted findings sum to 0–100.
 ### GREEN — clean local skill
 
 ```
-skillvet 0.1.0   scan  ./my-skill
+skillvet 0.1.1   scan  ./my-skill
 kind skill
 
 check            pts   status   notes
@@ -78,6 +80,7 @@ secret-access    0     GREEN    —
 postinstall      0     GREEN    —
 obfuscation      0     GREEN    —
 binaries         0     GREEN    —
+scan-coverage    0     GREEN    —
 manifest         0     GREEN    —
 
 VERDICT  GREEN   0/100
@@ -86,43 +89,45 @@ VERDICT  GREEN   0/100
 ### YELLOW — reads secrets, no network
 
 ```
-skillvet 0.1.0   scan  ./env-doctor
+skillvet 0.1.1   scan  ./env-doctor
 kind skill
 
 check            pts   status   notes
 ──────────────── ───   ──────   ────────────────────────────────────────────
 phone-home       0     GREEN    —
-secret-access    +40   YELLOW   reads ~/.ssh  (+1 more)
+secret-access    +45   YELLOW   reads ~/.ssh  (+1 more)
 postinstall      0     GREEN    —
 obfuscation      0     GREEN    —
 binaries         0     GREEN    —
+scan-coverage    0     GREEN    —
 manifest         0     GREEN    —
 
 findings
   • reads ~/.ssh  index.js:5
   • references GITHUB_TOKEN  index.js:6
 
-VERDICT  YELLOW   40/100
+VERDICT  YELLOW   45/100
 ```
 
 ### RED — phones home + postinstall hook
 
 ```
-skillvet 0.1.0   scan  ./helpful-notes
+skillvet 0.1.1   scan  ./helpful-notes
 kind skill
 
 check            pts   status   notes
 ──────────────── ───   ──────   ────────────────────────────────────────────
 phone-home       +40   YELLOW   undeclared outbound host exfil.attacker.invalid
 secret-access    0     GREEN    —
-postinstall      +35   YELLOW   package.json scripts.postinstall runs automatically on install
+postinstall      +35   YELLOW   package.json scripts.postinstall is an npm lifecycle hook
 obfuscation      0     GREEN    —
 binaries         0     GREEN    —
+scan-coverage    0     GREEN    —
 manifest         0     GREEN    —
 
 findings
   • undeclared outbound host exfil.attacker.invalid  index.js:1
-  • package.json scripts.postinstall runs automatically on install  package.json
+  • package.json scripts.postinstall is an npm lifecycle hook  package.json
 
 VERDICT  RED   75/100
 ```
@@ -140,18 +145,26 @@ npx skillvet ./my-skill --json
   "exitCode": 2,
   "findings": [
     { "check": "phone-home", "message": "undeclared outbound host exfil.attacker.invalid" },
-    { "check": "postinstall", "message": "package.json scripts.postinstall runs automatically on install" }
+    { "check": "postinstall", "message": "package.json scripts.postinstall is an npm lifecycle hook" }
   ]
 }
 ```
 
 ## Why now?
 
-August 2026: researchers flagged about **7,600 malicious GitHub repositories**, **800+** of them posing as AI Skills or MCP servers. A GitHub takeover of the 25k-star Blender MCP repo showed how fast a “just paste this skill” habit turns into a supply-chain incident.
+In July 2026, [Island reported about 7,600 malicious GitHub repositories](https://www.island.io/blog/your-ai-can-be-given-secret-instructions-in-plain-english), including more than 800 posing as AI Skills or MCP servers.
 
 Developers still drop random `SKILL.md` folders and MCP packages into agents with no review. skillvet is the five-second check before that happens.
 
 It will not catch a clever enough adversary. It will catch the stuff that is already in the wild: install hooks, stolen tokens, mystery binaries, and a `fetch` to a domain the skill never declared.
+
+## Security model
+
+Remote downloads are capped at 25 MB, archive contents at 100 MB and 10,000 entries, and network/archive commands at 30 seconds. Remote URLs and every redirect hop are limited to public HTTP(S) addresses, with the validated DNS address pinned to the connection; credentials, query strings, and fragments are removed from reports. Archive paths and links are rejected before extraction. GitHub tree refs are resolved through GitHub's API to immutable commit SHAs, including branch names containing `/`; subdirectories must remain under the extracted repository root. Generic tar archives with mixed top-level entries are scanned from the full extraction root.
+
+Remote tar/ZIP scans require the host `tar` and `unzip` commands (macOS or Linux).
+
+skillvet is a static heuristic scanner, not a sandbox or proof of safety. Review findings and source before installation. See [SECURITY.md](./SECURITY.md) for vulnerability reporting.
 
 ## Library
 

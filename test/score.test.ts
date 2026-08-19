@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseArgs } from "../src/args.js";
+import { finish } from "../src/checks/manifest.js";
 import { exitCodeFor, scoreFindings, verdictFor } from "../src/score.js";
 import { scan } from "../src/scan.js";
 import { fixture } from "./helpers.js";
@@ -15,6 +16,17 @@ describe("scoring", () => {
     expect(exitCodeFor("GREEN")).toBe(0);
     expect(exitCodeFor("YELLOW")).toBe(1);
     expect(exitCodeFor("RED")).toBe(2);
+  });
+
+  it("keeps capped finding totals consistent with check and scan scores", () => {
+    const findings = Array.from({ length: 100 }, (_, i) => ({
+      check: "x",
+      message: `finding ${i}`,
+      score: 10,
+    }));
+    const result = finish("x", "x", findings, 60);
+    expect(result.score).toBe(60);
+    expect(result.findings.reduce((sum, finding) => sum + finding.score, 0)).toBe(60);
   });
 
   it("promotes YELLOW to RED under --strict", async () => {
@@ -35,5 +47,23 @@ describe("cli args", () => {
       strict: true,
     });
     expect(() => parseArgs(["--nope"])).toThrow(/unknown flag/);
+  });
+
+  it("redacts URL credentials from exported parser errors", () => {
+    for (const argv of [
+      ["--https://arg-user:arg-pass@arg.invalid/path?arg=secret#part"],
+      ["./safe", "/tmp/https:extra-user:extra-pass@extra.invalid?extra=secret#part"],
+    ]) {
+      let message = "";
+      try {
+        parseArgs(argv);
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toMatch(/unknown flag|unexpected argument/);
+      expect(message).not.toMatch(
+        /arg-user|arg-pass|arg=secret|extra-user|extra-pass|extra=secret|#part/,
+      );
+    }
   });
 });

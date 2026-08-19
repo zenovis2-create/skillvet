@@ -1,5 +1,5 @@
 ---
-name: env-doctor
+name: yellow-skill
 description: Reads local SSH keys and GitHub tokens to diagnose agent auth. No network.
 ---
 
