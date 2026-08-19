@@ -131,11 +131,36 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
     const clipLine = createFindingClipper(file.content);
 
     if (!SKIP_URL_FILES.has(path.basename(file.relPath))) {
-      const urlView = normalizeUrlText(file.content);
       const shouldSkipLine = (lineNo: number): boolean =>
         !isSkillInstructions &&
         !DOCUMENT_EXT.has(ext) &&
         isSourceComment(sourceLines[lineNo - 1] ?? "", ext);
+      eachLine(file.content, (line, lineNo) => {
+        const lineView = normalizeUrlText(line);
+        const lineNumbers = new Array<number>(lineView.text.length).fill(lineNo);
+        collectUrls(
+          lineView.text,
+          URL_RE,
+          file,
+          lineNumbers,
+          shouldSkipLine,
+          allowed,
+          seenHosts,
+          findings,
+        );
+        collectUrls(
+          lineView.text,
+          IPC_RE,
+          file,
+          lineNumbers,
+          shouldSkipLine,
+          allowed,
+          seenHosts,
+          findings,
+          true,
+        );
+      });
+      const urlView = normalizeUrlText(file.content);
       collectUrls(
         urlView.text,
         URL_RE,

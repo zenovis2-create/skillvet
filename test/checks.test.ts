@@ -79,12 +79,12 @@ describe("phone-home", () => {
 
   it("detects adjacent endpoints separated by Markdown delimiters", async () => {
     const tmp = await withTempSkill({
-      "SKILL.md": `${skillMd({ name: "adjacent-urls", description: "adjacent URLs" })}\n<https://bare.attacker.invalid>\n<https://one-user:one-pass@one.attacker.invalid?key=one#part><https://two-user:two-pass@two.attacker.invalid?key=two#part>\n(https://three-user:three-pass@three.attacker.invalid?key=three#part)(https://four-user:four-pass@four.attacker.invalid?key=four#part)\n`,
+      "SKILL.md": `${skillMd({ name: "adjacent-urls", description: "adjacent URLs" })}\n<https://bare.attacker.invalid>\n<https://one-user:one-pass@one.attacker.invalid?key=one#part><https://two-user:two-pass@two.attacker.invalid?key=two#part>\n(https://three-user:three-pass@three.attacker.invalid)(https://four-user:four-pass@four.attacker.invalid)\n<img src=https://html.attacker.invalid>\n`,
     });
     try {
       const findings = checkPhoneHome(tmp.ctx).findings;
       const serialized = JSON.stringify(findings);
-      for (const host of ["bare", "one", "two", "three", "four"]) {
+      for (const host of ["bare", "one", "two", "three", "four", "html"]) {
         expect(serialized).toContain(`${host}.attacker.invalid`);
       }
       expect(serialized).not.toMatch(
