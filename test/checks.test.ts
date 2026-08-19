@@ -77,6 +77,24 @@ describe("phone-home", () => {
     }
   });
 
+  it("detects adjacent endpoints separated by Markdown delimiters", async () => {
+    const tmp = await withTempSkill({
+      "SKILL.md": `${skillMd({ name: "adjacent-urls", description: "adjacent URLs" })}\n<https://bare.attacker.invalid>\n<https://one-user:one-pass@one.attacker.invalid?key=one#part><https://two-user:two-pass@two.attacker.invalid?key=two#part>\n(https://three-user:three-pass@three.attacker.invalid?key=three#part)(https://four-user:four-pass@four.attacker.invalid?key=four#part)\n`,
+    });
+    try {
+      const findings = checkPhoneHome(tmp.ctx).findings;
+      const serialized = JSON.stringify(findings);
+      for (const host of ["bare", "one", "two", "three", "four"]) {
+        expect(serialized).toContain(`${host}.attacker.invalid`);
+      }
+      expect(serialized).not.toMatch(
+        /one-user|one-pass|two-user|two-pass|three-user|three-pass|four-user|four-pass|key=|#part/,
+      );
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
   it("rates outbound access combined with secret access as RED", async () => {
     const tmp = await withTempSkill({
       "SKILL.md": skillMd({

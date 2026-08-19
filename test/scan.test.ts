@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { formatReport, toJson } from "../src/report.js";
 import { scan } from "../src/scan.js";
@@ -31,6 +34,49 @@ describe("fixture skills", () => {
     expect(result.findings.some((f) => f.check === "phone-home")).toBe(true);
     expect(result.findings.some((f) => f.check === "postinstall")).toBe(true);
     expect(exitCodeFor(result.verdict)).toBe(2);
+  });
+});
+
+describe("scan API redaction", () => {
+  it("sanitizes returned paths, finding fields, and errors", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "skillvet-api-redaction-"));
+    const root = path.join(
+      base,
+      "https:path-user:path-pass@example.com?path=secret#part",
+    );
+    await mkdir(root);
+    await writeFile(
+      path.join(root, "SKILL.md"),
+      "---\nname: api-redaction\ndescription: API redaction fixture\n---\n",
+    );
+    await writeFile(
+      path.join(root, "ipc:file-user:file-pass@channel?file=secret#part.js"),
+      'eval("safe literal");\n',
+    );
+    try {
+      const result = await scan(root);
+      const serialized = JSON.stringify(result);
+      expect(serialized).toContain("example.com");
+      expect(serialized).not.toMatch(
+        /path-user|path-pass|path=secret|file-user|file-pass|file=secret|#part/,
+      );
+
+      const missing = path.join(
+        base,
+        "https:error-user:error-pass@example.com?error=secret#part",
+      );
+      let message = "";
+      try {
+        await scan(missing);
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toContain("path not found");
+      expect(message).toContain("example.com");
+      expect(message).not.toMatch(/error-user|error-pass|error=secret|#part/);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
   });
 });
 

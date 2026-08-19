@@ -9,7 +9,7 @@ import { loadContext } from "./context.js";
 import { resolveTarget } from "./resolve.js";
 import { redactTarget } from "./safe-http.js";
 import { scoreFindings } from "./score.js";
-import { redactUrls } from "./walk.js";
+import { redactFinding, redactUrls } from "./walk.js";
 import {
   SCORE_RED,
   SCORE_YELLOW,
@@ -20,6 +20,15 @@ import {
 } from "./types.js";
 
 export async function scan(target: string, options: ScanOptions = {}): Promise<ScanResult> {
+  try {
+    return await scanTarget(target, options);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(redactUrls(message));
+  }
+}
+
+async function scanTarget(target: string, options: ScanOptions): Promise<ScanResult> {
   const resolved = await resolveTarget(target);
   try {
     const ctx = await loadContext(resolved.path);
@@ -31,13 +40,13 @@ export async function scan(target: string, options: ScanOptions = {}): Promise<S
       await checkBinariesAsync(ctx),
       checkScanCoverage(ctx),
       checkManifest(ctx),
-    ];
+    ].map((check) => ({ ...check, findings: check.findings.map(redactFinding) }));
     const findings = checks.flatMap((c) => c.findings);
     const { score, verdict } = scoreFindings(findings, options);
     return {
       version: VERSION,
       target: redactUrls(redactTarget(target)),
-      resolvedPath: resolved.path,
+      resolvedPath: redactUrls(resolved.path),
       kind: ctx.kind,
       verdict,
       score,

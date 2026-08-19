@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
-import type { FileEntry, SkippedFile, TextFile } from "./types.js";
+import type { FileEntry, Finding, SkippedFile, TextFile } from "./types.js";
 
 export const SKIP_DIRS = new Set([
   "node_modules",
@@ -263,14 +263,18 @@ export function clip(s: string, max = 80): string {
   return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
 }
 
-const EVIDENCE_URL_RE = /\b(?:https?|wss?|ipc|unix|npipe):[^\s"'`]+/gi;
+const EVIDENCE_URL_RE =
+  /\b(?:https?|wss?|ipc|unix|npipe):(?:(?!\b(?:https?|wss?|ipc|unix|npipe):)[^\s"'`])+/gi;
 
 export function redactUrls(value: string): string {
   const normalized = value.replace(/[\t\r\n]/g, "");
   return normalized.replace(EVIDENCE_URL_RE, (raw) => {
+    const candidate = raw.replace(/[.,;:!?)\]}><(]+$/g, "");
     try {
-      const url = new URL(raw);
-      const opaqueIpc = /^(?:ipc|unix|npipe):/i.test(raw) && !/^(?:ipc|unix|npipe):\/\//i.test(raw);
+      const url = new URL(candidate);
+      const opaqueIpc =
+        /^(?:ipc|unix|npipe):/i.test(candidate) &&
+        !/^(?:ipc|unix|npipe):\/\//i.test(candidate);
       if (opaqueIpc) {
         const pathname = url.pathname.includes("@")
           ? url.pathname.slice(url.pathname.lastIndexOf("@") + 1)
@@ -286,4 +290,11 @@ export function redactUrls(value: string): string {
       return "<redacted URL>";
     }
   });
+}
+
+export function redactFinding(finding: Finding): Finding {
+  const redacted = { ...finding, message: redactUrls(finding.message) };
+  if (redacted.file !== undefined) redacted.file = redactUrls(redacted.file);
+  if (redacted.evidence !== undefined) redacted.evidence = redactUrls(redacted.evidence);
+  return redacted;
 }

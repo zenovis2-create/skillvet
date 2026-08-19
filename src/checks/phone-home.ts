@@ -16,8 +16,10 @@ const DOCUMENT_EXT = new Set([
   ".txt",
 ]);
 
-const URL_RE = /(?:https?|wss?):(?:\/\/)?[^\s"'`]+/gi;
-const IPC_RE = /\b(?:ipc|unix|npipe):(?:\/\/)?[^\s"'`]+/gi;
+const URL_RE =
+  /(?:https?|wss?):(?:\/\/)?(?:(?!\b(?:https?|wss?|ipc|unix|npipe):)[^\s"'`])+/gi;
+const IPC_RE =
+  /\b(?:ipc|unix|npipe):(?:\/\/)?(?:(?!\b(?:https?|wss?|ipc|unix|npipe):)[^\s"'`])+/gi;
 const HASH_COMMENT_EXT = new Set([
   ".py",
   ".sh",
@@ -214,5 +216,5 @@ function isScannableFile(file: TextFile): boolean {
 }
 
 function stripTrailingPunct(s: string): string {
-  return s.replace(/[.,;:!?)\]]+$/g, "");
+  return s.replace(/[.,;:!?)\]}><(]+$/g, "");
 }
