@@ -693,6 +693,24 @@ describe("manifest", () => {
     }
   });
 
+  it("rejects characters outside the YAML 1.2 printable set", async () => {
+    const tmp = await withTempSkill({
+      "SKILL.md": "---\nname: control-char\ndescription: contains\u0001control\n---\n# fixture\n",
+    });
+    try {
+      const result = await scan(tmp.root);
+      expect(result.verdict).not.toBe("GREEN");
+      expect(result.findings).toContainEqual(
+        expect.objectContaining({
+          check: "manifest",
+          message: expect.stringMatching(/invalid description|unexpected field/i),
+        }),
+      );
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
   it("requires the skill name to match its parent directory", async () => {
     const tmp = await withTempSkill(
       { "SKILL.md": skillMd({ name: "claimed-name", description: "a mismatched skill" }) },

@@ -12,6 +12,7 @@ export function parseFrontmatter(md: string): Record<string, unknown> {
 }
 
 export function parseSimpleYaml(src: string): Record<string, unknown> {
+  if (!isYamlPrintable(src)) return { "skillvet.invalid-yaml": null };
   try {
     const document = parseDocument(src, {
       merge: false,
@@ -37,6 +38,27 @@ export function parseSimpleYaml(src: string): Record<string, unknown> {
   } catch {
     return { "skillvet.invalid-yaml": null };
   }
+}
+
+function isYamlPrintable(src: string): boolean {
+  for (const char of src) {
+    const codePoint = char.codePointAt(0);
+    if (codePoint === undefined) return false;
+    if (
+      codePoint === 0x09 ||
+      codePoint === 0x0a ||
+      codePoint === 0x0d ||
+      (codePoint >= 0x20 && codePoint <= 0x7e) ||
+      codePoint === 0x85 ||
+      (codePoint >= 0xa0 && codePoint <= 0xd7ff) ||
+      (codePoint >= 0xe000 && codePoint <= 0xfffd) ||
+      (codePoint >= 0x10000 && codePoint <= 0x10ffff)
+    ) {
+      continue;
+    }
+    return false;
+  }
+  return true;
 }
 
 const YAML_CORE_TAGS = new Set([
