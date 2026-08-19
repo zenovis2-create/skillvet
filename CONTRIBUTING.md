@@ -31,7 +31,10 @@ Good PRs:
 - Tighter detectors that cut false positives
 - Docs that match the actual CLI output
 
-Please keep the runtime dependency list empty. Dev tooling stays at TypeScript, vitest, tsx, and `@types/node`.
+Keep runtime dependencies minimal. `yaml` is the sole runtime dependency and has no
+transitive packages; it provides standards-compliant, fail-closed frontmatter parsing.
+Any additional runtime package needs a security and maintenance justification. Dev
+tooling stays at TypeScript, vitest, tsx, and `@types/node`.
 
 ## Scoring
 

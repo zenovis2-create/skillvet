@@ -1,6 +1,7 @@
 import { exitCodeFor } from "./score.js";
 import { redactTarget } from "./safe-http.js";
-import { VERSION, type CheckResult, type ScanResult, type Verdict } from "./types.js";
+import { VERSION, type CheckResult, type Finding, type ScanResult, type Verdict } from "./types.js";
+import { redactUrls } from "./walk.js";
 
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
@@ -37,9 +38,9 @@ export function toJson(result: ScanResult) {
     checks: result.checks.map((c) => ({
       id: c.id,
       score: c.score,
-      findings: c.findings,
+      findings: c.findings.map(sanitizeFinding),
     })),
-    findings: result.findings,
+    findings: result.findings.map(sanitizeFinding),
   };
 }
 
@@ -69,9 +70,10 @@ function formatTable(result: ScanResult, color: boolean): string {
   if (result.findings.length > 0) {
     lines.push(c.dim("findings"));
     for (const f of result.findings) {
+      const safe = sanitizeFinding(f);
       const loc = f.file ? `${f.file}${f.line ? `:${f.line}` : ""}` : "";
       const locBit = loc ? c.dim(`  ${loc}`) : "";
-      lines.push(`  ${c.dim("•")} ${f.message}${locBit}`);
+      lines.push(`  ${c.dim("•")} ${safe.message}${locBit}`);
     }
     lines.push("");
   }
@@ -92,8 +94,15 @@ function notesFor(check: CheckResult): string {
   if (check.findings.length === 0) return "—";
   const first = check.findings[0];
   if (!first) return "—";
-  if (check.findings.length === 1) return first.message;
-  return `${first.message}  (+${check.findings.length - 1} more)`;
+  const message = redactUrls(first.message);
+  if (check.findings.length === 1) return message;
+  return `${message}  (+${check.findings.length - 1} more)`;
+}
+
+function sanitizeFinding(finding: Finding): Finding {
+  const sanitized = { ...finding, message: redactUrls(finding.message) };
+  if (sanitized.evidence !== undefined) sanitized.evidence = redactUrls(sanitized.evidence);
+  return sanitized;
 }
 
 function row(a: string, b: string, d: string, e: string): string {

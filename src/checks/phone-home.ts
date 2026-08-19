@@ -83,8 +83,9 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
       }
 
       if (!SKIP_URL_FILES.has(path.basename(file.relPath))) {
-        collectUrls(line, URL_RE, file, lineNo, allowed, seenHosts, findings);
-        collectUrls(line, IPC_RE, file, lineNo, allowed, seenHosts, findings, true);
+        const urlLine = line.replace(/[\t\r\n]/g, "");
+        collectUrls(urlLine, URL_RE, file, lineNo, allowed, seenHosts, findings);
+        collectUrls(urlLine, IPC_RE, file, lineNo, allowed, seenHosts, findings, true);
       }
 
       for (const prim of PRIMITIVES) {

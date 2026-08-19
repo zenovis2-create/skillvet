@@ -266,9 +266,17 @@ export function clip(s: string, max = 80): string {
 const EVIDENCE_URL_RE = /\b(?:https?|wss?|ipc|unix|npipe):[^\s"'`\\)<>]+/gi;
 
 export function redactUrls(value: string): string {
-  return value.replace(EVIDENCE_URL_RE, (raw) => {
+  const normalized = value.replace(/[\t\r\n]/g, "");
+  return normalized.replace(EVIDENCE_URL_RE, (raw) => {
     try {
       const url = new URL(raw);
+      const opaqueIpc = /^(?:ipc|unix|npipe):/i.test(raw) && !/^(?:ipc|unix|npipe):\/\//i.test(raw);
+      if (opaqueIpc) {
+        const pathname = url.pathname.includes("@")
+          ? url.pathname.slice(url.pathname.lastIndexOf("@") + 1)
+          : url.pathname;
+        return `${url.protocol}${pathname}`;
+      }
       url.username = "";
       url.password = "";
       url.search = "";

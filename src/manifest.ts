@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
-import { parseDocument } from "yaml";
+import { parseDocument, visit } from "yaml";
 import type { McpManifest, PackageJson, SkillManifest } from "./types.js";
 import { MAX_TEXT_BYTES } from "./walk.js";
 
@@ -19,14 +19,59 @@ export function parseSimpleYaml(src: string): Record<string, unknown> {
       strict: true,
       uniqueKeys: true,
     });
-    if (document.errors.length > 0 || document.warnings.length > 0) {
+    let unsupportedTag = false;
+    visit(document, {
+      Node(_key, node) {
+        if (node.tag && !YAML_CORE_TAGS.has(node.tag)) {
+          unsupportedTag = true;
+          return visit.BREAK;
+        }
+      },
+    });
+    if (document.errors.length > 0 || document.warnings.length > 0 || unsupportedTag) {
       return { "skillvet.invalid-yaml": null };
     }
-    const parsed: unknown = document.toJS({ maxAliasCount: 20 });
-    return isRecord(parsed) ? parsed : { "skillvet.invalid-yaml": null };
+    const parsed: unknown = document.toJS({ mapAsMap: true, maxAliasCount: 20 });
+    const normalized = normalizeYamlMaps(parsed);
+    return isRecord(normalized) ? normalized : { "skillvet.invalid-yaml": null };
   } catch {
     return { "skillvet.invalid-yaml": null };
   }
+}
+
+const YAML_CORE_TAGS = new Set([
+  "tag:yaml.org,2002:map",
+  "tag:yaml.org,2002:seq",
+  "tag:yaml.org,2002:str",
+  "tag:yaml.org,2002:null",
+  "tag:yaml.org,2002:bool",
+  "tag:yaml.org,2002:int",
+  "tag:yaml.org,2002:float",
+]);
+
+function normalizeYamlMaps(value: unknown, stack = new WeakSet<object>()): unknown {
+  if (value instanceof Map) {
+    if (stack.has(value)) return { "skillvet.invalid-yaml": null };
+    stack.add(value);
+    const entries: Array<[string, unknown]> = [];
+    for (const [key, child] of value) {
+      if (typeof key !== "string") {
+        stack.delete(value);
+        return { "skillvet.invalid-yaml": null };
+      }
+      entries.push([key, normalizeYamlMaps(child, stack)]);
+    }
+    stack.delete(value);
+    return Object.fromEntries(entries);
+  }
+  if (Array.isArray(value)) {
+    if (stack.has(value)) return [{ "skillvet.invalid-yaml": null }];
+    stack.add(value);
+    const result = value.map((child) => normalizeYamlMaps(child, stack));
+    stack.delete(value);
+    return result;
+  }
+  return value;
 }
 
 export function hostFromUrl(raw: string): string | undefined {
@@ -205,7 +250,9 @@ function isMcpServerConfig(value: unknown): boolean {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 async function readUtf8IfSmall(file: string): Promise<string | undefined> {
