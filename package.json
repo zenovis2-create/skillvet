@@ -28,6 +28,7 @@
     "test": "vitest run",
     "lint": "tsc --noEmit",
     "skillvet": "tsx src/cli.ts",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
