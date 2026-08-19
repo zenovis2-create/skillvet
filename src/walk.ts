@@ -85,6 +85,7 @@ const BINARY_ASSET_EXT = new Set([
 
 export const MAX_TEXT_BYTES = 1_000_000;
 const TEXT_PROBE_BYTES = 4_096;
+const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 export function isTextPath(relPath: string): boolean {
   const ext = path.extname(relPath).toLowerCase();
@@ -220,6 +221,11 @@ export async function readTextFiles(
 function looksTextual(content: Buffer): boolean {
   if (content.length === 0) return true;
   if (content.includes(0)) return false;
+  try {
+    UTF8_DECODER.decode(content);
+  } catch {
+    return false;
+  }
   let controls = 0;
   for (const byte of content) {
     if (byte < 0x09 || (byte > 0x0d && byte < 0x20) || byte === 0x7f) {

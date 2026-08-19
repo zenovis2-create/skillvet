@@ -301,16 +301,20 @@ function isAllowedVersion(value: string): boolean {
   if (/^(?:\[|\()\s*(?:v?\d|,).*?(?:\]|\))$/.test(version)) {
     return false;
   }
-  const numericVersion =
-    "v?\\d+(?:\\.\\d+){0,3}(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?";
-  if (new RegExp(`^${numericVersion}\\s+-\\s+${numericVersion}$`).test(version)) {
+  const selectorVersion =
+    "(?:v?\\d+|[xX*])(?:\\.(?:\\d+|[xX*]))*(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?";
+  if (new RegExp(`^${selectorVersion}\\s+-\\s+${selectorVersion}$`).test(version)) {
     return false;
   }
-  if (new RegExp(`^${numericVersion}(?:\\s+${numericVersion})+$`).test(version)) {
+  if (new RegExp(`^${selectorVersion}(?:\\s+${selectorVersion})+$`).test(version)) {
     return false;
   }
-  const dottedVersion = /^\s*(?:v?\d+|x|X|\*)(?:\.(?:\d+|x|X|\*)){1,2}(?:-[0-9A-Za-z.-]+)?\s*$/;
-  return !(dottedVersion.test(version) && /[xX*]/.test(version));
+  const versionCore = (version.split(/[+-]/, 1)[0] ?? "").replace(/^v(?=\d)/i, "");
+  const components = versionCore.split(".");
+  return !(
+    components.every((component) => /^\d+$|^[xX*]$/.test(component)) &&
+    components.some((component) => /^[xX*]$/.test(component))
+  );
 }
 
 function validOptionalString(value: unknown, maxLength: number): boolean {

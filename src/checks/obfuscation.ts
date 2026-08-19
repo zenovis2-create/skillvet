@@ -1,9 +1,8 @@
-import path from "node:path";
 import type { CheckResult, Finding, ScanContext } from "../types.js";
 import { clip, eachLine } from "../walk.js";
 import { finish } from "./manifest.js";
 
-const CODE_EXT = new Set([".js", ".ts", ".mjs", ".cjs", ".jsx", ".tsx", ".py"]);
+const DOC_FILES = new Set(["readme.md", "changelog.md", "license", "license.md"]);
 
 const PATTERNS: { re: RegExp; message: string; score: number }[] = [
   {
@@ -39,8 +38,8 @@ export function checkObfuscation(ctx: ScanContext): CheckResult {
   const seen = new Set<string>();
 
   for (const file of ctx.textFiles) {
-    const ext = path.extname(file.relPath).toLowerCase();
-    if (!CODE_EXT.has(ext)) continue;
+    const base = file.relPath.split("/").pop()?.toLowerCase() ?? "";
+    if (DOC_FILES.has(base)) continue;
 
     eachLine(file.content, (line, lineNo) => {
       for (const pat of PATTERNS) {

@@ -4,54 +4,7 @@ import type { CheckResult, Finding, ScanContext, TextFile } from "../types.js";
 import { clip, eachLine } from "../walk.js";
 import { finish } from "./manifest.js";
 
-const CODE_EXT = new Set([
-  ".js",
-  ".ts",
-  ".mjs",
-  ".cjs",
-  ".jsx",
-  ".tsx",
-  ".py",
-  ".sh",
-  ".bash",
-  ".zsh",
-  ".json",
-  ".yml",
-  ".yaml",
-  ".toml",
-  ".xml",
-  ".ini",
-  ".cfg",
-  ".conf",
-  ".properties",
-  ".ps1",
-  ".fish",
-  ".rb",
-  ".php",
-  ".go",
-  ".rs",
-  ".java",
-  ".kt",
-  ".kts",
-  ".swift",
-  ".c",
-  ".h",
-  ".cpp",
-  ".hpp",
-  ".cs",
-  ".scala",
-  ".lua",
-  ".pl",
-  ".r",
-  ".vue",
-  ".svelte",
-  ".gradle",
-  ".gyp",
-  ".gypi",
-]);
-
 const DOC_FILES = new Set(["readme.md", "changelog.md", "license", "license.md"]);
-const DOC_EXT = new Set([".md", ".txt", ".rst", ".adoc"]);
 
 const URL_RE = /(?:https?|wss?):\/\/[^\s"'`\\)<>]+/gi;
 const IPC_RE = /\b(?:ipc|unix|npipe):\/\/[^\s"'`\\)<>]+/gi;
@@ -190,11 +143,7 @@ function collectUrls(
 
 function isScannableFile(file: TextFile): boolean {
   const base = path.basename(file.relPath).toLowerCase();
-  if (DOC_FILES.has(base)) return false;
-  if (base === "skill.md") return true;
-  const ext = path.extname(file.relPath).toLowerCase();
-  if (DOC_EXT.has(ext)) return false;
-  return CODE_EXT.has(ext) || ext !== "" || file.content.startsWith("#!");
+  return !DOC_FILES.has(base);
 }
 
 function stripTrailingPunct(s: string): string {
