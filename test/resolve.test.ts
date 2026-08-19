@@ -10,7 +10,7 @@ import {
   validateArchiveListing,
   validateArchiveMembers,
 } from "../src/archive.js";
-import { selectGitHubRef } from "../src/github.js";
+import { GITHUB_API_HEADERS, selectGitHubRef } from "../src/github.js";
 import { resolveContainedPath, resolveTarget } from "../src/resolve.js";
 import { collectLimitedBody, isBlockedAddress, redactTarget } from "../src/safe-http.js";
 
@@ -121,6 +121,10 @@ describe("remote archive limits", () => {
         ["refs/heads/release", "refs/heads/release/2.0"],
       ),
     ).toEqual({ ref: "release/2.0", subdir: "skill" });
+  });
+
+  it("sends the User-Agent required by GitHub's REST API", () => {
+    expect(GITHUB_API_HEADERS["User-Agent"]).toMatch(/^skillvet\//);
   });
 
   it("rejects archive links and special device entries", () => {

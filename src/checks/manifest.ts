@@ -54,6 +54,14 @@ export function checkManifest(ctx: ScanContext): CheckResult {
           score: 30,
         });
       }
+      if (ctx.skill.invalidFields.length > 0) {
+        findings.push({
+          check: "manifest",
+          message: `SKILL.md has invalid optional fields: ${ctx.skill.invalidFields.join(", ")}`,
+          file: "SKILL.md",
+          score: 30,
+        });
+      }
       if (!ctx.skill.metadataValid) {
         findings.push({
           check: "manifest",

@@ -1,10 +1,12 @@
 import { safeGet } from "./safe-http.js";
+import { VERSION } from "./types.js";
 
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 const MAX_API_BYTES = 2 * 1024 * 1024;
 
-const GITHUB_API_HEADERS = {
+export const GITHUB_API_HEADERS = {
   Accept: "application/vnd.github+json",
+  "User-Agent": `skillvet/${VERSION}`,
   "X-GitHub-Api-Version": "2022-11-28",
 };
 

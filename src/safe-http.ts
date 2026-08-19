@@ -119,7 +119,7 @@ export async function safeGet(
     visited.add(parsed.href);
 
     const addresses = await withTimeout(
-      lookup(stripIpv6Brackets(parsed.hostname), { all: true, verbatim: true }),
+      lookup(stripIpv6Brackets(parsed.hostname), { all: true, order: "verbatim" }),
       timeoutMs,
       "remote DNS lookup timed out",
     );

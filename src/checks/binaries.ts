@@ -88,7 +88,6 @@ export async function checkBinariesAsync(ctx: ScanContext): Promise<CheckResult>
 export async function classifyBinary(file: FileEntry): Promise<string | undefined> {
   const base = path.basename(file.relPath).toLowerCase();
   const ext = path.extname(file.relPath).toLowerCase();
-  if (TEXT_NAMES.has(base)) return undefined;
 
   if (EXEC_EXT.has(ext)) {
     return `executable-shaped file (${ext})`;
@@ -100,6 +99,7 @@ export async function classifyBinary(file: FileEntry): Promise<string | undefine
   const magic = detectMagic(head);
   if (magic) return `binary blob (${magic})`;
 
+  if (TEXT_NAMES.has(base)) return undefined;
   if (ASSET_EXT.has(ext)) return undefined;
   if (!ext && looksBinary(head)) {
     return "extensionless binary blob";

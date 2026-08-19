@@ -132,6 +132,21 @@ export function parseSkillMarkdown(md: string): SkillManifest {
   const metadataValid =
     metadata === undefined ||
     (isRecord(metadata) && Object.values(metadata).every((value) => typeof value === "string"));
+  const invalidFields: string[] = [];
+  if (fm.license !== undefined && typeof fm.license !== "string") {
+    invalidFields.push("license");
+  }
+  if (
+    fm.compatibility !== undefined &&
+    (typeof fm.compatibility !== "string" ||
+      fm.compatibility.length < 1 ||
+      fm.compatibility.length > 500)
+  ) {
+    invalidFields.push("compatibility");
+  }
+  if (fm["allowed-tools"] !== undefined && typeof fm["allowed-tools"] !== "string") {
+    invalidFields.push("allowed-tools");
+  }
   const allowed = metadataValid && isRecord(metadata)
     ? domainsFromUnknown(metadata["skillvet.allowed-domains"])
     : [];
@@ -144,6 +159,7 @@ export function parseSkillMarkdown(md: string): SkillManifest {
     allowedDomains: unique(allowed),
     rawFrontmatter: Object.keys(fm).length > 0,
     unexpectedFields: Object.keys(fm).filter((field) => !supportedFields.has(field)),
+    invalidFields,
     metadataValid,
   };
 }
@@ -171,7 +187,7 @@ export function parseServerJson(raw: unknown): boolean {
       server.description.trim() &&
       server.description.length <= 100 &&
       typeof server.version === "string" &&
-      isExactVersion(server.version) &&
+      isAllowedVersion(server.version) &&
       validOptionalString(server.title, 100) &&
       validOptionalUri(server.websiteUrl) &&
       validOptionalUri(server["$schema"]) &&
@@ -276,11 +292,17 @@ function unique(items: string[]): string[] {
   return [...new Set(items.filter(Boolean))];
 }
 
-function isExactVersion(value: string): boolean {
+function isAllowedVersion(value: string): boolean {
   const version = value.trim();
-  if (!version || version.length > 255 || /^latest$/i.test(version)) return false;
-  if (/[<>=~^*|]/.test(version) || /\s/.test(version)) return false;
-  return !/(?:^|\.)x(?:\.|$)/i.test(version);
+  if (!version || version.length > 255 || version === "latest") return false;
+  const comparator = /^\s*(?:\^|~|>=|<=|>|<|=)\s*v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?\s*$/;
+  const hyphenRange = /^\s*v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?\s-\s*v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?\s*$/;
+  const orRange = /^\s*(?:v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?\s*)(?:\|\|\s*v?\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.-]+)?\s*)+$/;
+  const dottedVersion = /^\s*(?:v?\d+|x|X|\*)(?:\.(?:\d+|x|X|\*)){1,2}(?:-[0-9A-Za-z.-]+)?\s*$/;
+  if (comparator.test(version) || hyphenRange.test(version) || orRange.test(version)) {
+    return false;
+  }
+  return !(dottedVersion.test(version) && /[xX*]/.test(version));
 }
 
 function validOptionalString(value: unknown, maxLength: number): boolean {
@@ -321,6 +343,7 @@ function validIcons(value: unknown): boolean {
     Boolean(
       isRecord(icon) &&
         typeof icon.src === "string" &&
+        icon.src.length <= 255 &&
         /^https:\/\//i.test(icon.src) &&
         isUri(icon.src) &&
         (icon.mimeType === undefined ||
@@ -349,13 +372,17 @@ function validPackages(value: unknown): boolean {
         pkg.identifier.trim() &&
         validTransport(pkg.transport, true) &&
         (pkg.version === undefined ||
-          (typeof pkg.version === "string" && isExactVersion(pkg.version))) &&
+          (typeof pkg.version === "string" && isAllowedVersion(pkg.version))) &&
         validOptionalUri(pkg.registryBaseUrl) &&
         (pkg.fileSha256 === undefined ||
           (typeof pkg.fileSha256 === "string" && /^[a-f0-9]{64}$/.test(pkg.fileSha256))) &&
-        (pkg.environmentVariables === undefined || Array.isArray(pkg.environmentVariables)) &&
-        (pkg.packageArguments === undefined || Array.isArray(pkg.packageArguments)) &&
-        (pkg.runtimeArguments === undefined || Array.isArray(pkg.runtimeArguments)) &&
+        (pkg.environmentVariables === undefined ||
+          (Array.isArray(pkg.environmentVariables) &&
+            pkg.environmentVariables.every(validKeyValueInput))) &&
+        (pkg.packageArguments === undefined ||
+          (Array.isArray(pkg.packageArguments) && pkg.packageArguments.every(validArgument))) &&
+        (pkg.runtimeArguments === undefined ||
+          (Array.isArray(pkg.runtimeArguments) && pkg.runtimeArguments.every(validArgument))) &&
         (pkg.runtimeHint === undefined || typeof pkg.runtimeHint === "string"),
     ),
   );
@@ -372,7 +399,50 @@ function validTransport(value: unknown, local: boolean): boolean {
   return Boolean(
     typeof value.url === "string" &&
       /^(?:https?:\/\/[^\s]+|\{[a-zA-Z_][a-zA-Z0-9_]*\}[^\s]*)$/.test(value.url) &&
-      (value.headers === undefined || Array.isArray(value.headers)) &&
-      (value.variables === undefined || isRecord(value.variables)),
+      (value.headers === undefined ||
+        (Array.isArray(value.headers) && value.headers.every(validKeyValueInput))) &&
+      (value.variables === undefined ||
+        (isRecord(value.variables) && Object.values(value.variables).every(validInput))),
   );
+}
+
+function validInput(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return Boolean(
+    (value.choices === undefined ||
+      (Array.isArray(value.choices) && value.choices.every((choice) => typeof choice === "string"))) &&
+      (value.default === undefined || typeof value.default === "string") &&
+      (value.description === undefined || typeof value.description === "string") &&
+      (value.format === undefined ||
+        ["string", "number", "boolean", "filepath"].includes(String(value.format))) &&
+      (value.isRequired === undefined || typeof value.isRequired === "boolean") &&
+      (value.isSecret === undefined || typeof value.isSecret === "boolean") &&
+      (value.placeholder === undefined || typeof value.placeholder === "string") &&
+      (value.value === undefined || typeof value.value === "string"),
+  );
+}
+
+function validInputWithVariables(value: Record<string, unknown>): boolean {
+  return Boolean(
+    validInput(value) &&
+      (value.variables === undefined ||
+        (isRecord(value.variables) && Object.values(value.variables).every(validInput))),
+  );
+}
+
+function validKeyValueInput(value: unknown): boolean {
+  return Boolean(
+    isRecord(value) &&
+      validInputWithVariables(value) &&
+      typeof value.name === "string",
+  );
+}
+
+function validArgument(value: unknown): boolean {
+  if (!isRecord(value) || !validInputWithVariables(value)) return false;
+  if (value.isRepeated !== undefined && typeof value.isRepeated !== "boolean") return false;
+  if (value.type === "named") return typeof value.name === "string";
+  if (value.type !== "positional") return false;
+  if (value.valueHint !== undefined && typeof value.valueHint !== "string") return false;
+  return typeof value.valueHint === "string" || typeof value.value === "string";
 }

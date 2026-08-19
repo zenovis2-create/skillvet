@@ -62,6 +62,7 @@ export interface SkillManifest {
   allowedDomains: string[];
   rawFrontmatter: boolean;
   unexpectedFields: string[];
+  invalidFields: string[];
   metadataValid: boolean;
 }
 

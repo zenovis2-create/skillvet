@@ -9,6 +9,7 @@ import { checkPostinstall } from "../src/checks/postinstall.js";
 import { checkSecrets } from "../src/checks/secrets.js";
 import { checkScanCoverage } from "../src/checks/scan-coverage.js";
 import { loadContext } from "../src/context.js";
+import { parseServerJson } from "../src/manifest.js";
 import { scan } from "../src/scan.js";
 import { skillMd, withTempSkill } from "./helpers.js";
 
@@ -344,6 +345,22 @@ describe("binaries", () => {
     }
   });
 
+  it("detects executable magic hidden behind a trusted text filename", async () => {
+    const tmp = await withTempSkill({
+      "SKILL.md": skillMd({ name: "trusted-name", description: "trusted filename bypass" }),
+      "README.md": Buffer.from("MZhidden executable"),
+    });
+    try {
+      const result = await checkBinariesAsync(tmp.ctx);
+      expect(result.findings).toContainEqual(
+        expect.objectContaining({ file: "README.md", message: expect.stringContaining("PE/MZ") }),
+      );
+      expect((await scan(tmp.root)).verdict).not.toBe("GREEN");
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
   it("detects WebAssembly bytecode", () => {
     expect(detectMagic(Buffer.from([0x00, 0x61, 0x73, 0x6d]))).toBe("WebAssembly");
   });
@@ -454,6 +471,17 @@ describe("manifest", () => {
         "---",
       ].join("\n"),
     });
+    const invalidOptional = await withTempSkill({
+      "SKILL.md": [
+        "---",
+        "name: invalid-optional",
+        "description: uses invalid optional field types",
+        "compatibility: 42",
+        "allowed-tools:",
+        "  - Bash",
+        "---",
+      ].join("\n"),
+    });
     try {
       expect(valid.ctx.skill?.allowedDomains).toEqual(["api.example.com"]);
       expect(checkManifest(valid.ctx).findings).toEqual([]);
@@ -464,10 +492,14 @@ describe("manifest", () => {
       expect(checkManifest(invalidValue.ctx).findings).toContainEqual(
         expect.objectContaining({ message: expect.stringMatching(/metadata.*string/i) }),
       );
+      expect(checkManifest(invalidOptional.ctx).findings).toContainEqual(
+        expect.objectContaining({ message: expect.stringMatching(/invalid.*compatibility.*allowed-tools/i) }),
+      );
     } finally {
       await valid.cleanup();
       await invalid.cleanup();
       await invalidValue.cleanup();
+      await invalidOptional.cleanup();
     }
   });
 
@@ -532,6 +564,35 @@ describe("manifest", () => {
           websiteUrl: 42,
         }),
       }),
+      withTempSkill({
+        "server.json": JSON.stringify({
+          name: "io.github.example/nested",
+          description: "nested",
+          version: "1.2.3",
+          packages: [{
+            registryType: "npm",
+            identifier: "nested",
+            transport: { type: "stdio" },
+            environmentVariables: [42],
+          }],
+        }),
+      }),
+      withTempSkill({
+        "server.json": JSON.stringify({
+          name: "io.github.example/headers",
+          description: "headers",
+          version: "1.2.3",
+          remotes: [{ type: "sse", url: "https://example.com/sse", headers: [42] }],
+        }),
+      }),
+      withTempSkill({
+        "server.json": JSON.stringify({
+          name: "io.github.example/icon",
+          description: "icon",
+          version: "1.2.3",
+          icons: [{ src: `https://example.com/${"x".repeat(260)}.png` }],
+        }),
+      }),
     ]);
     try {
       for (const fixture of fixtures) {
@@ -541,6 +602,45 @@ describe("manifest", () => {
       }
     } finally {
       await Promise.all(fixtures.map((fixture) => fixture.cleanup()));
+    }
+  });
+
+  it("accepts official free-form MCP versions that do not express a range", async () => {
+    const tmp = await withTempSkill({
+      "server.json": JSON.stringify({
+        name: "io.github.example/snapshot",
+        description: "free-form exact version",
+        version: "snapshot - 2025.09",
+      }),
+    });
+    try {
+      expect(checkManifest(tmp.ctx).findings).toEqual([]);
+      expect((await scan(tmp.root)).verdict).toBe("GREEN");
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
+  it("matches the Registry's semantic distinction between ranges and free-form versions", () => {
+    const server = (version: string) => ({
+      name: "io.github.example/version",
+      description: "version predicate",
+      version,
+    });
+    for (const version of [
+      "^1.2.3",
+      "~1.2.3",
+      ">=1.0.0",
+      "1.2.3 - 2.0.0",
+      "1.2 || 1.3",
+      "1.2.*",
+      "1.x",
+      "latest",
+    ]) {
+      expect(parseServerJson(server(version)), version).toBe(false);
+    }
+    for (const version of ["1.2.3", "v1.2.3", "not-a-version", "snapshot - 2025.09"]) {
+      expect(parseServerJson(server(version)), version).toBe(true);
     }
   });
 });
