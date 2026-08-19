@@ -10,7 +10,8 @@ Supply-chain security scanner for AI agent skills and MCP servers. One command. 
 npx skillvet ./my-skill
 ```
 
-Zero runtime dependencies. Node 22+. Does not execute the skill.
+Node 22+. Uses the zero-transitive-dependency `yaml` parser for standards-compliant
+frontmatter validation. Does not execute the skill.
 
 ## Install
 

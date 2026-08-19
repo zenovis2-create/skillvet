@@ -1,11 +1,20 @@
 import path from "node:path";
 import { hostFromUrl, normalizeHost } from "../manifest.js";
 import type { CheckResult, Finding, ScanContext, TextFile } from "../types.js";
-import { clip, eachLine } from "../walk.js";
+import { clip, eachLine, redactUrls } from "../walk.js";
 import { finish } from "./manifest.js";
 
 const DOC_FILES = new Set(["readme.md", "changelog.md", "license", "license.md"]);
-const DOCUMENT_EXT = new Set(["", ".md", ".markdown", ".mdx", ".txt"]);
+const DOCUMENT_EXT = new Set([
+  "",
+  ".md",
+  ".markdown",
+  ".mdown",
+  ".mdx",
+  ".mkd",
+  ".mkdn",
+  ".txt",
+]);
 
 const URL_RE = /(?:https?|wss?):\/\/[^\s"'`\\)<>]+/gi;
 const IPC_RE = /\b(?:ipc|unix|npipe):\/\/[^\s"'`\\)<>]+/gi;
@@ -119,7 +128,7 @@ function collectUrls(
       seenHosts.add(key);
       findings.push({
         check: "phone-home",
-        message: `outbound IPC endpoint ${raw}`,
+        message: `outbound IPC endpoint ${redactUrls(raw)}`,
         file: file.relPath,
         line: lineNo,
         evidence: clip(line),

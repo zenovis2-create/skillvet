@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
+import { parseDocument } from "yaml";
 import type { McpManifest, PackageJson, SkillManifest } from "./types.js";
 import { MAX_TEXT_BYTES } from "./walk.js";
 
@@ -11,190 +12,21 @@ export function parseFrontmatter(md: string): Record<string, unknown> {
 }
 
 export function parseSimpleYaml(src: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  const anchors = new Map<string, unknown>();
-  let currentKey: string | null = null;
-  let currentArr: string[] | null = null;
-
-  const lines = src.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i] ?? "";
-    if (/^\s*#/.test(raw) || raw.trim() === "") continue;
-    const listItem = raw.match(/^\s+-\s+(.+)$/);
-    if (listItem && currentKey) {
-      if (!currentArr) {
-        currentArr = [];
-        result[currentKey] = currentArr;
-      }
-      currentArr.push(stripQuotes(listItem[1] ?? ""));
-      continue;
+  try {
+    const document = parseDocument(src, {
+      merge: false,
+      schema: "core",
+      strict: true,
+      uniqueKeys: true,
+    });
+    if (document.errors.length > 0 || document.warnings.length > 0) {
+      return { "skillvet.invalid-yaml": null };
     }
-    const nestedKv = raw.match(/^\s+([A-Za-z0-9_.\/-]+)\s*:\s*(.*)$/);
-    if (nestedKv && currentKey) {
-      const existing = result[currentKey];
-      const map: Record<string, unknown> = isRecord(existing) ? existing : {};
-      result[currentKey] = map;
-      const key = (nestedKv[1] ?? "").toLowerCase();
-      const nestedValue = (nestedKv[2] ?? "").trim();
-      map[key] = nestedValue === "" ? {} : parseYamlScalar(nestedValue, anchors);
-      continue;
-    }
-    const kv = raw.match(/^([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
-    if (!kv) continue;
-    currentKey = (kv[1] ?? "").toLowerCase();
-    currentArr = null;
-    const value = (kv[2] ?? "").trim();
-    const blockStyle = value.match(/^([|>])[+-]?$/)?.[1];
-    if (value === "") {
-      if (currentKey === "metadata") {
-        result[currentKey] = {};
-      } else {
-        currentArr = [];
-        result[currentKey] = currentArr;
-      }
-    } else if (value.startsWith("[") && value.endsWith("]")) {
-      result[currentKey] = value
-        .slice(1, -1)
-        .split(",")
-        .map((s) => stripQuotes(s.trim()))
-        .filter(Boolean);
-    } else if (blockStyle) {
-      const block: string[] = [];
-      while (i + 1 < lines.length && /^(?:\s+|$)/.test(lines[i + 1] ?? "")) {
-        i += 1;
-        block.push((lines[i] ?? "").replace(/^\s+/, ""));
-      }
-      result[currentKey] = (blockStyle === "|" ? block.join("\n") : block.join(" ")).trim();
-    } else {
-      result[currentKey] = parseYamlScalar(value, anchors);
-    }
+    const parsed: unknown = document.toJS({ maxAliasCount: 20 });
+    return isRecord(parsed) ? parsed : { "skillvet.invalid-yaml": null };
+  } catch {
+    return { "skillvet.invalid-yaml": null };
   }
-  return result;
-}
-
-export function stripQuotes(s: string): string {
-  const t = s.trim();
-  if (
-    (t.startsWith('"') && t.endsWith('"')) ||
-    (t.startsWith("'") && t.endsWith("'"))
-  ) {
-    return t.slice(1, -1);
-  }
-  return t;
-}
-
-function parseYamlScalar(value: string, anchors: Map<string, unknown>): unknown {
-  const stripped = stripQuotes(value);
-  if (stripped !== value.trim()) return stripped;
-  let rest = stripped;
-  let forceString = false;
-  let anchorName: string | undefined;
-  while (rest) {
-    const stringTag = rest.match(
-      /^(?:!!str|!<tag:yaml\.org,2002:str>)(?:\s+|$)([\s\S]*)$/,
-    );
-    if (stringTag) {
-      forceString = true;
-      rest = stringTag[1] ?? "";
-      continue;
-    }
-    if (rest.startsWith("!")) return { "": null };
-    const anchor = rest.match(/^&([^\s,[\]{}]+)(?:\s+|$)([\s\S]*)$/);
-    if (anchor) {
-      anchorName = anchor[1];
-      rest = anchor[2] ?? "";
-      continue;
-    }
-    break;
-  }
-  let parsed: unknown;
-  const alias = rest.match(/^\*([^\s,[\]{}]+)$/);
-  if (alias) {
-    parsed = anchors.has(alias[1] ?? "") ? anchors.get(alias[1] ?? "") : { "": null };
-  } else if (forceString) {
-    const unquoted = stripQuotes(rest);
-    parsed = unquoted === rest.trim() && /^[{[]/.test(rest.trim()) ? { "": null } : unquoted;
-  } else if (rest.startsWith("{") && rest.endsWith("}")) {
-    parsed = parseFlowMapping(rest, anchors);
-  } else if (rest.startsWith("[") && rest.endsWith("]")) {
-    const items = splitFlowItems(rest.slice(1, -1));
-    parsed = items?.map((item) => parseYamlScalar(item.trim(), anchors)) ?? [{ "": null }];
-  } else if (/^(?:true|false)$/i.test(rest)) {
-    parsed = rest.toLowerCase() === "true";
-  } else if (/^(?:null|~)$/i.test(rest)) {
-    parsed = null;
-  } else if (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(rest)) {
-    parsed = Number(rest);
-  } else {
-    parsed = rest;
-  }
-  if (anchorName) anchors.set(anchorName, parsed);
-  return parsed;
-}
-
-function parseFlowMapping(
-  value: string,
-  anchors: Map<string, unknown>,
-): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  const body = value.slice(1, -1).trim();
-  if (!body) return result;
-  const items = splitFlowItems(body);
-  if (!items) return { "": null };
-  for (const item of items) {
-    const separator = flowDelimiterPositions(item, ":")?.[0] ?? -1;
-    const key = stripQuotes(item.slice(0, separator)).trim().toLowerCase();
-    if (separator <= 0 || !key) return { "": null };
-    result[key] = parseYamlScalar(item.slice(separator + 1).trim(), anchors);
-  }
-  return result;
-}
-
-function splitFlowItems(value: string): string[] | undefined {
-  const delimiters = flowDelimiterPositions(value, ",");
-  if (!delimiters) return undefined;
-  const items: string[] = [];
-  let start = 0;
-  for (const delimiter of delimiters) {
-    items.push(value.slice(start, delimiter));
-    start = delimiter + 1;
-  }
-  items.push(value.slice(start));
-  if (items.at(-1)?.trim() === "") items.pop();
-  return items;
-}
-
-function flowDelimiterPositions(value: string, delimiter: string): number[] | undefined {
-  const positions: number[] = [];
-  let quote: "'" | '"' | undefined;
-  let escaped = false;
-  let depth = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    const char = value[i];
-    if (quote) {
-      if (quote === '"' && escaped) {
-        escaped = false;
-      } else if (quote === '"' && char === "\\") {
-        escaped = true;
-      } else if (quote === "'" && char === "'" && value[i + 1] === "'") {
-        i += 1;
-      } else if (char === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-    } else if (char === "[" || char === "{") {
-      depth += 1;
-    } else if (char === "]" || char === "}") {
-      if (depth === 0) return undefined;
-      depth -= 1;
-    } else if (char === delimiter && depth === 0) {
-      positions.push(i);
-    }
-  }
-  return quote || depth !== 0 ? undefined : positions;
 }
 
 export function hostFromUrl(raw: string): string | undefined {

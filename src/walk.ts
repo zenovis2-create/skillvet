@@ -259,6 +259,23 @@ export function eachLine(
 }
 
 export function clip(s: string, max = 80): string {
-  const t = s.trim();
+  const t = redactUrls(s).trim();
   return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
+}
+
+const EVIDENCE_URL_RE = /\b(?:https?|wss?|ipc|unix|npipe):[^\s"'`\\)<>]+/gi;
+
+export function redactUrls(value: string): string {
+  return value.replace(EVIDENCE_URL_RE, (raw) => {
+    try {
+      const url = new URL(raw);
+      url.username = "";
+      url.password = "";
+      url.search = "";
+      url.hash = "";
+      return url.toString();
+    } catch {
+      return "<redacted URL>";
+    }
+  });
 }
