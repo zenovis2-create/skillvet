@@ -4,12 +4,13 @@ Thanks for helping keep agent skills and MCP servers from being a free-for-all.
 
 ## Setup
 
-Node 20 or newer.
+Node 22 or newer.
 
 ```bash
 npm install
 npm test
 npm run lint
+npm run build
 ```
 
 Run the scanner against the bundled fixtures:
