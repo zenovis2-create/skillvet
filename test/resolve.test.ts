@@ -102,6 +102,22 @@ describe("remote archive limits", () => {
     );
   });
 
+  it("does not echo secrets from malformed HTTP targets", async () => {
+    for (const target of [
+      "https:user:pass@example.com/a?token=secret#part",
+      "http:/user:pass@example.com/a?token=secret#part",
+    ]) {
+      let message = "";
+      try {
+        await resolveTarget(target);
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toMatch(/remote|credentials|URL/i);
+      expect(message).not.toMatch(/user|pass|token=secret|#part/);
+    }
+  });
+
   it("classifies private, link-local, loopback, and mapped addresses as blocked", () => {
     for (const address of [
       "10.0.0.1",

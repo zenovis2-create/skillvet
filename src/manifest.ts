@@ -85,6 +85,7 @@ export function stripQuotes(s: string): string {
 function parseYamlScalar(value: string): unknown {
   const stripped = stripQuotes(value);
   if (stripped !== value.trim()) return stripped;
+  if (/^[!&*]/.test(stripped)) return { "": null };
   if (stripped.startsWith("{") && stripped.endsWith("}")) {
     return parseFlowMapping(stripped);
   }
@@ -318,7 +319,7 @@ function isAllowedVersion(value: string): boolean {
   const version = value.trim();
   if (!version || version.length > 255 || version === "latest") return false;
   if (version.includes("||") || version.includes("&&")) return false;
-  if (/^(?:x|\*)$/i.test(version)) return false;
+  if (/^x$/i.test(version) || version.includes("*")) return false;
   if (/(?:^|[\s,])(?:\^|~=|~|>=|>|<=|<|!=|=)\s*\S/.test(version)) return false;
   if (/^(?:\[|\()\s*(?:v?\d|,).*?(?:\]|\))$/.test(version)) {
     return false;

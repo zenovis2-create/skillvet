@@ -14,7 +14,8 @@ const DOWNLOAD_TIMEOUT_MS = 30_000;
 const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
 
 export async function resolveTarget(target: string): Promise<ResolvedTarget> {
-  if (/^https?:\/\//i.test(target)) {
+  if (/^https?:/i.test(target)) {
+    if (!/^https?:\/\//i.test(target)) throw new Error("invalid remote URL");
     return fetchRemote(target);
   }
   const resolved = path.resolve(target);
