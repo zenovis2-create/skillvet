@@ -17,9 +17,9 @@ const DOCUMENT_EXT = new Set([
 ]);
 
 const URL_RE =
-  /(?:https?|wss?):(?:\/\/)?(?:(?!\b(?:https?|wss?|ipc|unix|npipe):)[^\s"'`])+/gi;
+  /(?:https?|wss?):(?:\/\/)?(?:(?!\b(?:https?|wss?|ipc|unix|npipe):)[^"'`])+/gi;
 const IPC_RE =
-  /\b(?:ipc|unix|npipe):(?:\/\/)?(?:(?!\b(?:https?|wss?|ipc|unix|npipe):)[^\s"'`])+/gi;
+  /\b(?:ipc|unix|npipe):(?:\/\/)?(?:(?!\b(?:https?|wss?|ipc|unix|npipe):)[^"'`])+/gi;
 const HASH_COMMENT_EXT = new Set([
   ".py",
   ".sh",

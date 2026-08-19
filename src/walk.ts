@@ -264,7 +264,7 @@ export function clip(s: string, max = 80): string {
 }
 
 const EVIDENCE_URL_RE =
-  /\b(?:https?|wss?|ipc|unix|npipe):(?:(?!\b(?:https?|wss?|ipc|unix|npipe):)[^\s"'`])+/gi;
+  /\b(?:https?|wss?|ipc|unix|npipe):(?:(?!\b(?:https?|wss?|ipc|unix|npipe):)[^"'`])+/gi;
 
 export function redactUrls(value: string): string {
   const normalized = value.replace(/[\t\r\n]/g, "");
