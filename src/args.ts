@@ -1,4 +1,5 @@
 import { SCORE_RED, SCORE_YELLOW, VERSION } from "./types.js";
+import { redactUrls } from "./walk.js";
 
 export interface CliArgs {
   target?: string;
@@ -24,9 +25,9 @@ export function parseArgs(argv: string[]): CliArgs {
     else if (raw === "--version" || raw === "-v") args.version = true;
     else if (raw === "--no-color") args.noColor = true;
     else if (raw.startsWith("-")) {
-      throw new Error(`unknown flag: ${raw}`);
+      throw new Error(`unknown flag: ${redactUrls(raw)}`);
     } else if (!args.target) args.target = raw;
-    else throw new Error(`unexpected argument: ${raw}`);
+    else throw new Error(`unexpected argument: ${redactUrls(raw)}`);
   }
   return args;
 }

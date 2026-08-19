@@ -48,4 +48,22 @@ describe("cli args", () => {
     });
     expect(() => parseArgs(["--nope"])).toThrow(/unknown flag/);
   });
+
+  it("redacts URL credentials from exported parser errors", () => {
+    for (const argv of [
+      ["--https://arg-user:arg-pass@arg.invalid/path?arg=secret#part"],
+      ["./safe", "/tmp/https:extra-user:extra-pass@extra.invalid?extra=secret#part"],
+    ]) {
+      let message = "";
+      try {
+        parseArgs(argv);
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toMatch(/unknown flag|unexpected argument/);
+      expect(message).not.toMatch(
+        /arg-user|arg-pass|arg=secret|extra-user|extra-pass|extra=secret|#part/,
+      );
+    }
+  });
 });
