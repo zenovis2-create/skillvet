@@ -31,7 +31,7 @@ export async function scan(target: string, options: ScanOptions = {}): Promise<S
 async function scanTarget(target: string, options: ScanOptions): Promise<ScanResult> {
   const resolved = await resolveTarget(target);
   try {
-    const ctx = await loadContext(resolved.path);
+    const ctx = await loadContext(resolved.path, options.profile);
     const checks: CheckResult[] = [
       checkPhoneHome(ctx),
       checkSecrets(ctx),

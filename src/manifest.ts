@@ -2,7 +2,8 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
 import { parseDocument, visit } from "yaml";
-import type { McpManifest, PackageJson, SkillManifest } from "./types.js";
+import type { McpManifest, PackageJson, ScanProfile, SkillManifest } from "./types.js";
+import { scanProfile } from "./profiles.js";
 import { MAX_TEXT_BYTES } from "./walk.js";
 
 export function parseFrontmatter(md: string): Record<string, unknown> {
@@ -121,16 +122,12 @@ export function domainsFromUnknown(value: unknown): string[] {
     .filter(Boolean);
 }
 
-export function parseSkillMarkdown(md: string): SkillManifest {
+export function parseSkillMarkdown(
+  md: string,
+  profile: ScanProfile = "portable-agent-skill",
+): SkillManifest {
   const fm = parseFrontmatter(md);
-  const supportedFields = new Set([
-    "name",
-    "description",
-    "license",
-    "compatibility",
-    "metadata",
-    "allowed-tools",
-  ]);
+  const supportedFields = new Set(scanProfile(profile).skillFrontmatterFields);
   const metadata = fm.metadata;
   const metadataValid =
     metadata === undefined ||
@@ -233,11 +230,14 @@ export async function loadPackageJson(root: string): Promise<PackageJson | undef
   return raw;
 }
 
-export async function loadSkillManifest(root: string): Promise<SkillManifest | undefined> {
+export async function loadSkillManifest(
+  root: string,
+  profile: ScanProfile = "portable-agent-skill",
+): Promise<SkillManifest | undefined> {
   try {
     const md = await readUtf8IfSmall(path.join(root, "SKILL.md"));
     if (md === undefined) return undefined;
-    return parseSkillMarkdown(md);
+    return parseSkillMarkdown(md, profile);
   } catch {
     return undefined;
   }

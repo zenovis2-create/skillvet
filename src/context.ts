@@ -1,4 +1,4 @@
-import type { ScanContext, TargetKind } from "./types.js";
+import type { ScanContext, ScanProfile, TargetKind } from "./types.js";
 import {
   loadMcpManifest,
   loadPackageJson,
@@ -6,12 +6,15 @@ import {
 } from "./manifest.js";
 import { listFiles, readTextFiles } from "./walk.js";
 
-export async function loadContext(root: string): Promise<ScanContext> {
+export async function loadContext(
+  root: string,
+  profile: ScanProfile = "portable-agent-skill",
+): Promise<ScanContext> {
   const skippedFiles: ScanContext["skippedFiles"] = [];
   const files = await listFiles(root, skippedFiles);
   const textFiles = await readTextFiles(files, skippedFiles);
   const pkg = await loadPackageJson(root);
-  const skill = await loadSkillManifest(root);
+  const skill = await loadSkillManifest(root, profile);
   const mcp = await loadMcpManifest(root, pkg);
 
   let kind: TargetKind = "unknown";

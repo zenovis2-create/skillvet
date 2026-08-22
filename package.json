@@ -1,7 +1,7 @@
 {
   "name": "skillvet",
-  "version": "0.1.1",
-  "description": "Supply-chain security scanner for AI agent skills and MCP servers.",
+  "version": "0.2.0",
+  "description": "Supply-chain scanner for AI agent skills and MCP servers, with Claude Code workspace audits.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -48,7 +48,9 @@
     "supply-chain",
     "agent",
     "llm",
-    "cli"
+    "cli",
+    "audit",
+    "claude-code"
   ],
   "devDependencies": {
     "@types/node": "^22.20.1",
