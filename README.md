@@ -3,7 +3,7 @@
 Supply-chain security scanner for AI agent skills and MCP servers. One command. A **RED / YELLOW / GREEN** verdict.
 
 [![stars](https://img.shields.io/github/stars/zenovis2-create/skillvet?style=flat)](https://github.com/zenovis2-create/skillvet)
-[![CI](https://img.shields.io/github/actions/workflow/status/zenovis2-create/skillvet/ci.yml?label=CI)](https://github.com/zenovis2-create/skillvet/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/zenovis2-create/skillvet/ci.yml)](https://github.com/zenovis2-create/skillvet/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
 ```bash
@@ -69,8 +69,12 @@ Weighted findings sum to 0–100.
 
 ### GREEN — clean local skill
 
+```bash
+npx skillvet ./green-skill
 ```
-skillvet 0.1.1   scan  ./my-skill
+
+```
+skillvet 0.1.1   scan  ./green-skill
 kind skill
 
 check            pts   status   notes
@@ -88,8 +92,12 @@ VERDICT  GREEN   0/100
 
 ### YELLOW — reads secrets, no network
 
+```bash
+npx skillvet ./yellow-skill
 ```
-skillvet 0.1.1   scan  ./env-doctor
+
+```
+skillvet 0.1.1   scan  ./yellow-skill
 kind skill
 
 check            pts   status   notes
@@ -111,8 +119,12 @@ VERDICT  YELLOW   45/100
 
 ### RED — phones home + postinstall hook
 
+```bash
+npx skillvet ./red-skill
 ```
-skillvet 0.1.1   scan  ./helpful-notes
+
+```
+skillvet 0.1.1   scan  ./red-skill
 kind skill
 
 check            pts   status   notes
@@ -135,7 +147,8 @@ VERDICT  RED   75/100
 JSON for pipelines:
 
 ```bash
-npx skillvet ./my-skill --json
+npx skillvet ./red-skill --json \
+  | jq '{verdict, score, exitCode, findings: [.findings[] | {check, message}]}'
 ```
 
 ```json
