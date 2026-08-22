@@ -29,7 +29,6 @@ import { redactUrls, toPosix } from "./walk.js";
 
 const execFile = promisify(execFileCallback);
 const MAX_AUDIT_READ_BYTES = 2 * 1024 * 1024;
-const CLAUDE_SKIP_BYTES = 4 * 1024 * 1024;
 const MAX_IMPORT_HOPS = 4;
 const DEFAULT_ASSUMED_CONTEXT = 200_000;
 const EXCLUDED_DIRS = new Set([".git", "node_modules", "coverage", ".venv", "venv", "__pycache__"]);
@@ -44,6 +43,7 @@ interface HookHandler {
   type: string;
   url?: string;
   headers: Record<string, unknown>;
+  allowedEnvVars: string[];
   pointer: string;
 }
 
@@ -294,12 +294,6 @@ async function collectLoadSurfaces(
   const allClaude = files.filter((file) => path.basename(file.relPath).toLowerCase() === "claude.md");
   for (const file of allClaude) {
     addObservation(build, "CLAUDE_MD_BYTES", "file", "CLAUDE.md byte size", file.size, evidence(root, file, undefined, 1, String(file.size)));
-    if (file.size > CLAUDE_SKIP_BYTES) {
-      addCandidate(build, "SKIPPED_BY_CLAUDE", {
-        message: "CLAUDE.md exceeds the modeled 4 MiB load limit",
-        evidence: evidence(root, file, undefined, 1, String(file.size)),
-      });
-    }
   }
   await collectClaudeImports(build, root, rootClaude, reasons);
 
@@ -479,6 +473,7 @@ async function collectHooks(
   const configFiles = files.filter((file) =>
     /^\.claude\/(?:.*\/)?(?:settings(?:\.local)?|hooks)\.json$/i.test(file.relPath),
   );
+  const parsedConfigs: Array<{ file: WorkspaceFile; value: unknown }> = [];
   for (const file of configFiles) {
     const content = await readAuditText(root, file, reasons);
     if (content === undefined) continue;
@@ -490,7 +485,15 @@ async function collectHooks(
       addObservation(build, "CONFIG_PARSE_ERROR", "config", "JSON configuration could not be parsed", true, evidence(root, file, undefined, 1, content));
       continue;
     }
-    for (const block of extractHookBlocks(file, parsed)) {
+    parsedConfigs.push({ file, value: parsed });
+  }
+  const globalAllowedEnvVars = mergeHttpHookAllowedEnvVars(
+    parsedConfigs
+      .filter(({ file }) => /^\.claude\/(?:.*\/)?settings(?:\.local)?\.json$/i.test(file.relPath))
+      .map(({ value }) => isRecord(value) ? value.httpHookAllowedEnvVars : undefined),
+  );
+  for (const { file, value } of parsedConfigs) {
+    for (const block of extractHookBlocks(file, value, globalAllowedEnvVars)) {
       const matcher = block.matcher ?? "(omitted)";
       addObservation(
         build,
@@ -525,7 +528,7 @@ async function collectHooks(
         });
         const headers = Object.entries(handler.headers);
         const interpolated = headers.some(([, value]) =>
-          typeof value === "string" && /\$(?:\{)?[A-Za-z_][A-Za-z0-9_]*/.test(value),
+          typeof value === "string" && hasAllowedEnvironmentReference(value, handler.allowedEnvVars),
         );
         if (interpolated) {
           addCandidate(build, "HEADER_ENV_INTERPOLATION", {
@@ -659,7 +662,11 @@ function surfaceFor(dimension: string): AuditSurface {
   return "main";
 }
 
-function extractHookBlocks(file: WorkspaceFile, value: unknown): HookBlock[] {
+function extractHookBlocks(
+  file: WorkspaceFile,
+  value: unknown,
+  globalAllowedEnvVars: readonly string[] | undefined,
+): HookBlock[] {
   if (!isRecord(value) || !isRecord(value.hooks)) return [];
   const blocks: HookBlock[] = [];
   for (const [event, rawBlocks] of Object.entries(value.hooks)) {
@@ -674,7 +681,11 @@ function extractHookBlocks(file: WorkspaceFile, value: unknown): HookBlock[] {
         const headers = isRecord(rawHandler.headers) ? rawHandler.headers : {};
         const type = typeof rawHandler.type === "string" ? rawHandler.type.toLowerCase() : "command";
         const url = typeof rawHandler.url === "string" ? rawHandler.url : undefined;
-        return [{ type, url, headers, pointer: `${pointer}/hooks/${handlerIndex}` }];
+        const declaredAllowedEnvVars = optionalStringArray(rawHandler.allowedEnvVars) ?? [];
+        const allowedEnvVars = globalAllowedEnvVars === undefined
+          ? declaredAllowedEnvVars
+          : declaredAllowedEnvVars.filter((name) => globalAllowedEnvVars.includes(name));
+        return [{ type, url, headers, allowedEnvVars, pointer: `${pointer}/hooks/${handlerIndex}` }];
       });
       blocks.push({
         file,
@@ -687,6 +698,32 @@ function extractHookBlocks(file: WorkspaceFile, value: unknown): HookBlock[] {
     }
   }
   return blocks;
+}
+
+function optionalStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function mergeHttpHookAllowedEnvVars(values: unknown[]): string[] | undefined {
+  let configured = false;
+  const allowed = new Set<string>();
+  for (const value of values) {
+    const names = optionalStringArray(value);
+    if (names === undefined) continue;
+    configured = true;
+    for (const name of names) allowed.add(name);
+  }
+  return configured ? [...allowed] : undefined;
+}
+
+function hasAllowedEnvironmentReference(value: string, allowedEnvVars: readonly string[]): boolean {
+  const allowed = new Set(allowedEnvVars);
+  for (const match of value.matchAll(/\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g)) {
+    const name = match[1] ?? match[2];
+    if (name && allowed.has(name)) return true;
+  }
+  return false;
 }
 
 async function readAuditText(

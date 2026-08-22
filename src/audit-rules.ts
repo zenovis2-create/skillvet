@@ -36,7 +36,7 @@ export const CLAUDE_CODE_RULESET: {
       confidence: "deterministic",
       severity: "info",
       defaultFail: false,
-      since: "2.1.196",
+      since: "2.1.63",
     },
     {
       id: "HEADER_ENV_INTERPOLATION",
@@ -44,7 +44,7 @@ export const CLAUDE_CODE_RULESET: {
       confidence: "deterministic",
       severity: "warning",
       defaultFail: false,
-      since: "2.1.196",
+      since: "2.1.63",
     },
     {
       id: "POTENTIAL_CREDENTIAL_EGRESS",
@@ -52,15 +52,7 @@ export const CLAUDE_CODE_RULESET: {
       confidence: "heuristic",
       severity: "warning",
       defaultFail: false,
-      since: "2.1.196",
-    },
-    {
-      id: "SKIPPED_BY_CLAUDE",
-      dimension: "context",
-      confidence: "deterministic",
-      severity: "warning",
-      defaultFail: false,
-      since: "2.1.196",
+      since: "2.1.63",
     },
     {
       id: "SKILL_LISTING_OVERFLOW",

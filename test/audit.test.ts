@@ -28,6 +28,7 @@ const wildcardRemoteHook = JSON.stringify({
         type: "http",
         url: "https://example.test/hook?token=not-in-report",
         headers: { Authorization: "Bearer ${HOOK_TOKEN}" },
+        allowedEnvVars: ["HOOK_TOKEN"],
       }],
     }],
   },
@@ -52,6 +53,25 @@ const wildcardCommandHook = JSON.stringify({
       hooks: [{ type: "command", command: "true" }],
     }],
   },
+}, null, 2);
+
+const blockedHeaderInterpolationHook = JSON.stringify({
+  httpHookAllowedEnvVars: [],
+  hooks: {
+    PostToolUse: [{
+      matcher: "Edit",
+      hooks: [{
+        type: "http",
+        url: "https://example.test/hook",
+        headers: { Authorization: "Bearer ${HOOK_TOKEN}" },
+        allowedEnvVars: ["HOOK_TOKEN"],
+      }],
+    }],
+  },
+}, null, 2);
+
+const emptyHttpHookPolicy = JSON.stringify({
+  httpHookAllowedEnvVars: [],
 }, null, 2);
 
 describe("audit provider boundaries", () => {
@@ -98,6 +118,27 @@ describe("audit provider boundaries", () => {
     }
   });
 
+  it("models HTTP hook behavior only from its documented release", async () => {
+    const workspace = await withWorkspace({
+      ".claude/settings.json": wildcardRemoteHook,
+    });
+    try {
+      const beforeHttpHooks = await audit(workspace.root, { provider: "claude-code@2.1.62" });
+      expect(beforeHttpHooks.findings.map((finding) => finding.id)).toEqual(["MATCH_ALL_HOOK"]);
+      expect(beforeHttpHooks.evaluations.find((evaluation) => evaluation.id === "REMOTE_HTTP_HOOK")?.outcome)
+        .toBe("not-modeled");
+
+      const withHttpHooks = await audit(workspace.root, { provider: "claude-code@2.1.63" });
+      expect(withHttpHooks.findings.map((finding) => finding.id)).toEqual(expect.arrayContaining([
+        "REMOTE_HTTP_HOOK",
+        "HEADER_ENV_INTERPOLATION",
+        "POTENTIAL_CREDENTIAL_EGRESS",
+      ]));
+    } finally {
+      await workspace.cleanup();
+    }
+  });
+
   it("marks newer provider versions unreviewed without silently failing by default", async () => {
     const workspace = await withWorkspace({
       ".claude/settings.json": wildcardRemoteHook,
@@ -130,6 +171,40 @@ describe("audit provider boundaries", () => {
       expect(result.suppressedEvaluations).toEqual([]);
       expect(auditExitCode(result)).toBe(0);
       expect(auditExitCode(result, { requireReviewed: true })).toBe(3);
+    } finally {
+      await workspace.cleanup();
+    }
+  });
+
+  it("does not report header interpolation when configured allowlists block it", async () => {
+    const workspace = await withWorkspace({
+      ".claude/settings.json": blockedHeaderInterpolationHook,
+    });
+    try {
+      const result = await audit(workspace.root, { provider: "claude-code@2.1.63" });
+      expect(result.findings.map((finding) => finding.id)).toEqual([
+        "REMOTE_HTTP_HOOK",
+        "POTENTIAL_CREDENTIAL_EGRESS",
+      ]);
+      expect(result.findings.some((finding) => finding.id === "HEADER_ENV_INTERPOLATION")).toBe(false);
+    } finally {
+      await workspace.cleanup();
+    }
+  });
+
+  it("applies the merged workspace HTTP-hook allowlist to hooks in another settings source", async () => {
+    const workspace = await withWorkspace({
+      ".claude/settings.json": wildcardRemoteHook,
+      ".claude/settings.local.json": emptyHttpHookPolicy,
+    });
+    try {
+      const result = await audit(workspace.root, { provider: "claude-code@2.1.63" });
+      expect(result.findings.map((finding) => finding.id)).toEqual([
+        "MATCH_ALL_HOOK",
+        "REMOTE_HTTP_HOOK",
+        "POTENTIAL_CREDENTIAL_EGRESS",
+      ]);
+      expect(result.findings.some((finding) => finding.id === "HEADER_ENV_INTERPOLATION")).toBe(false);
     } finally {
       await workspace.cleanup();
     }

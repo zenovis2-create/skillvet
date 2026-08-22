@@ -66,7 +66,7 @@ Use `--fail-on-unreviewed` only when you intentionally want an unreviewed provid
 version to participate in that gate.
 
 Current deterministic rules cover modeled wildcard hooks, public HTTP hooks, header
-environment interpolation, oversized `CLAUDE.md`, and candidate skill-listing overflow.
+environment interpolation, and candidate skill-listing overflow.
 The load ledger also follows in-workspace `CLAUDE.md` imports and marks unresolved or
 external edges as partial coverage instead of reading outside the declared workspace.
 The JSON schema separates raw `observations`, evaluated `findings`, coverage, and
