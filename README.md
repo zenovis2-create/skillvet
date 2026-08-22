@@ -1,6 +1,6 @@
 # skillvet
 
-Supply-chain security scanner for AI agent skills and MCP servers. One command. A **RED / YELLOW / GREEN** verdict.
+Supply-chain scanner for AI agent skills and MCP servers, plus a CI-grade static audit for Claude Code workspaces.
 
 [![stars](https://img.shields.io/github/stars/zenovis2-create/skillvet?style=flat)](https://github.com/zenovis2-create/skillvet)
 [![CI](https://img.shields.io/github/actions/workflow/status/zenovis2-create/skillvet/ci.yml)](https://github.com/zenovis2-create/skillvet/actions/workflows/ci.yml)
@@ -27,6 +27,64 @@ Or pin it:
 npm i -D skillvet
 npx skillvet ./my-skill --strict
 ```
+
+## Audit a Claude Code workspace
+
+`scan` remains the package supply-chain scanner. `audit` is a separate, local-only
+workspace command: it reports load-surface facts, configured hooks, and version-gated
+Claude Code findings without downloading or executing workspace content.
+
+For an interactive local audit, opt in to version detection:
+
+```bash
+npx skillvet audit . --detect-provider-version
+```
+
+For CI, declare the exact installed version instead. This makes the report reproducible
+and makes review coverage a deliberate gate:
+
+```bash
+npx skillvet audit . \
+  --provider claude-code@<version> \
+  --fail-on=security \
+  --require-reviewed
+```
+
+`audit` never assumes a provider version. Without one it reports file facts and
+configuration observations, marks coverage `PARTIAL`, and does not turn version-gated
+behavior into findings. A version newer than the bundled documentation snapshot remains
+useful but is labeled `unreviewed`: findings are shown with CI eligibility disabled.
+
+| Audit exit code | Meaning |
+| --- | --- |
+| `0` | No eligible failure. This is not a claim that the workspace is GREEN. |
+| `2` | An eligible selected finding failed. |
+| `3` | A requested review or `--fail-on` gate could not be evaluated. |
+
+`--fail-on=context,hook` or `--fail-on=MATCH_ALL_HOOK` selects an opt-in gate.
+Use `--fail-on-unreviewed` only when you intentionally want an unreviewed provider
+version to participate in that gate.
+
+Current deterministic rules cover modeled wildcard hooks, public HTTP hooks, header
+environment interpolation, oversized `CLAUDE.md`, and candidate skill-listing overflow.
+The load ledger also follows in-workspace `CLAUDE.md` imports and marks unresolved or
+external edges as partial coverage instead of reading outside the declared workspace.
+The JSON schema separates raw `observations`, evaluated `findings`, coverage, and
+`suppressedEvaluations` so a CI parser cannot mistake syntactic facts for validated
+runtime behavior.
+
+## Profiles
+
+The default `scan` profile remains `portable-agent-skill`, which validates the six-field
+Agent Skills upload schema. Use the Claude Code profile when a local skill uses Claude
+Code-only frontmatter such as `argument-hint` or `disable-model-invocation`:
+
+```bash
+npx skillvet scan ./my-skill --profile claude-code
+```
+
+This profile split preserves strict pre-upload validation instead of silently accepting
+fields that a portable Agent Skill upload would reject.
 
 ## What it checks
 
@@ -74,7 +132,7 @@ npx skillvet ./green-skill
 ```
 
 ```
-skillvet 0.1.1   scan  ./green-skill
+skillvet 0.2.0   scan  ./green-skill
 kind skill
 
 check            pts   status   notes
@@ -97,7 +155,7 @@ npx skillvet ./yellow-skill
 ```
 
 ```
-skillvet 0.1.1   scan  ./yellow-skill
+skillvet 0.2.0   scan  ./yellow-skill
 kind skill
 
 check            pts   status   notes
@@ -124,7 +182,7 @@ npx skillvet ./red-skill
 ```
 
 ```
-skillvet 0.1.1   scan  ./red-skill
+skillvet 0.2.0   scan  ./red-skill
 kind skill
 
 check            pts   status   notes
@@ -182,11 +240,14 @@ skillvet is a static heuristic scanner, not a sandbox or proof of safety. Review
 ## Library
 
 ```ts
-import { scan, exitCodeFor } from "skillvet";
+import { audit, auditExitCode, scan, exitCodeFor } from "skillvet";
 
 const result = await scan("./my-skill", { strict: true });
 console.log(result.verdict, result.score);
 process.exit(exitCodeFor(result.verdict));
+
+const workspace = await audit(".", { provider: "claude-code@2.1.239" });
+process.exit(auditExitCode(workspace, { failOn: ["security"], requireReviewed: true }));
 ```
 
 ## License

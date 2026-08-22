@@ -1,10 +1,11 @@
-export const VERSION = "0.1.1";
+export const VERSION = "0.2.0";
 
 export const SCORE_YELLOW = 30;
 export const SCORE_RED = 70;
 
 export type Verdict = "GREEN" | "YELLOW" | "RED";
 export type TargetKind = "skill" | "mcp" | "unknown";
+export type ScanProfile = "portable-agent-skill" | "claude-code";
 
 export interface Finding {
   check: string;
@@ -24,6 +25,7 @@ export interface CheckResult {
 
 export interface ScanOptions {
   strict?: boolean;
+  profile?: ScanProfile;
 }
 
 export interface ScanResult {
