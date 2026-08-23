@@ -62,7 +62,10 @@ export async function auditCodex(
   const observations: CodexAuditObservation[] = [];
   const findings: CodexAuditFinding[] = [];
 
-  const overrides = collectSkillOverrides(tables, observations, findings);
+  const overrides = [
+    ...collectSkillOverrides(parsed.tables, observations, findings),
+    ...(profile ? collectSkillOverrides(profile.parsed.tables, observations, findings) : []),
+  ];
   const skills = await collectSkills(root, overrides, reasons, observations);
   await collectOverridePathFindings(root, overrides, findings, observations, reasons);
   const mcpServers = collectMcpServers(tables, observations, findings);
@@ -216,8 +219,8 @@ async function collectSkills(
       addReason(reasons, `UNRESOLVED_SKILL_MANIFEST: ${skill.name}`);
     }
     const applied = candidates.flatMap((candidate) => overridePaths.get(candidate) ?? []);
-    const enabled = !applied.some((override) => override.enabled === false)
-      || applied.some((override) => override.enabled === true);
+    const effectiveOverride = [...applied].reverse().find((override) => override.enabled !== undefined);
+    const enabled = effectiveOverride?.enabled ?? true;
     const listingBytes = await listingMetadataBytes(manifest, skill.name, reasons);
     result.push({
       name: skill.name,
