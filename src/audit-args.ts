@@ -4,6 +4,7 @@ export interface AuditCliArgs {
   target?: string;
   json: boolean;
   help: boolean;
+  version: boolean;
   noColor: boolean;
   provider?: string;
   detectProviderVersion: boolean;
@@ -17,6 +18,7 @@ export function parseAuditArgs(argv: string[]): AuditCliArgs {
   const args: AuditCliArgs = {
     json: false,
     help: false,
+    version: false,
     noColor: false,
     detectProviderVersion: false,
     failOn: [],
@@ -31,6 +33,7 @@ export function parseAuditArgs(argv: string[]): AuditCliArgs {
     else if (raw === "--fail-on-unreviewed") args.failOnUnreviewed = true;
     else if (raw === "--require-reviewed") args.requireReviewed = true;
     else if (raw === "--help" || raw === "-h") args.help = true;
+    else if (raw === "--version" || raw === "-v") args.version = true;
     else if (raw === "--provider") {
       args.provider = requiredValue(argv, ++index, "--provider");
     } else if (raw.startsWith("--provider=")) {
@@ -90,6 +93,7 @@ Options:
   --json                            machine-readable report
   --no-color                        disable ANSI colors
   -h, --help                        show this help
+  -v, --version                     show version
 
 Audit exit codes:
   0  no eligible failure (this is not necessarily GREEN)

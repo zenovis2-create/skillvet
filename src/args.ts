@@ -44,9 +44,14 @@ export function helpText(): string {
 skillvet ${VERSION} — supply-chain scanner for AI agent skills & MCP servers
 
 Usage:
-  skillvet <path|url> [--json] [--strict] [--profile <name>]
+  skillvet [scan] <path|url> [options]
+  skillvet audit <workspace> [options]
 
-Options:
+Commands:
+  scan        supply-chain scan for an AI agent skill or MCP server (default)
+  audit       CI-grade static audit for a Claude Code workspace
+
+Scan options:
   --json       machine-readable report
   --strict     any finding is YELLOW; score ≥ ${SCORE_YELLOW} is RED
   --profile    portable-agent-skill (default) or claude-code
