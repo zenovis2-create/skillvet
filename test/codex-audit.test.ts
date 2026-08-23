@@ -139,6 +139,25 @@ enabled = true
     }
   });
 
+  it("lets a selected profile override a base skill state without reporting a conflict", async () => {
+    const home = await withCodexHome(
+      "[[skills.config]]\npath = \"skills/review/SKILL.md\"\nenabled = false\n",
+      { review: "---\nname: review\ndescription: Review code.\n---\n" },
+    );
+    await writeFile(
+      path.join(home.root, "restore.config.toml"),
+      "[[skills.config]]\npath = \"skills/review/SKILL.md\"\nenabled = true\n",
+    );
+    try {
+      const result = await auditCodex(home.root, { profile: "restore" });
+      expect(result.findings.map((finding) => finding.id)).not.toContain("CONFLICTING_SKILL_OVERRIDE");
+      expect(result.skills).toEqual([expect.objectContaining({ name: "review", enabled: true })]);
+      expect(result.status).toBe("PASS");
+    } finally {
+      await home.cleanup();
+    }
+  });
+
   it("degrades when a modeled Codex surface cannot be read", async () => {
     const home = await withCodexHome("", {});
     try {
