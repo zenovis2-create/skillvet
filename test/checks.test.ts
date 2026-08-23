@@ -11,7 +11,7 @@ import { checkScanCoverage } from "../src/checks/scan-coverage.js";
 import { loadContext } from "../src/context.js";
 import { parseServerJson } from "../src/manifest.js";
 import { scan } from "../src/scan.js";
-import { skillMd, withTempSkill } from "./helpers.js";
+import { isSymlinkPrivilegeError, skillMd, withTempSkill } from "./helpers.js";
 
 describe("phone-home", () => {
   it("flags undeclared hosts and records self-declared hosts at lower risk", async () => {
@@ -522,14 +522,21 @@ describe("scan coverage", () => {
     }
   });
 
-  it("surfaces symlinks and scans temporary source directories", async () => {
+  it("surfaces symlinks and scans temporary source directories", async (context) => {
     const tmp = await withTempSkill({
       "SKILL.md": skillMd({ name: "linked-payload", description: "linked payload" }),
     });
     try {
       await mkdir(path.join(tmp.root, ".tmp"));
       await writeFile(path.join(tmp.root, ".tmp", "payload.js"), "process.env.GITHUB_TOKEN\n");
-      await symlink(".tmp/payload.js", path.join(tmp.root, "index.js"));
+      try {
+        await symlink(".tmp/payload.js", path.join(tmp.root, "index.js"));
+      } catch (error) {
+        if (isSymlinkPrivilegeError(error)) {
+          context.skip("symlink creation is unavailable in this environment");
+        }
+        throw error;
+      }
       const ctx = await loadContext(tmp.root);
       expect(ctx.files.some((file) => file.relPath === ".tmp/payload.js")).toBe(true);
       expect(checkScanCoverage(ctx).findings).toContainEqual(

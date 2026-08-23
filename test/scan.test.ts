@@ -2,9 +2,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { formatReport, toJson } from "../src/report.js";
+import { formatCollectionReport, formatReport, toCollectionJson, toJson } from "../src/report.js";
+import { scanCollection } from "../src/collection.js";
 import { scan } from "../src/scan.js";
 import { exitCodeFor } from "../src/score.js";
+import { parseArgs } from "../src/args.js";
 import { fixture } from "./helpers.js";
 
 describe("fixture skills", () => {
@@ -37,8 +39,57 @@ describe("fixture skills", () => {
   });
 });
 
+describe("skill collections", () => {
+  it("scans each direct skill separately and rejects an aggregate scan", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "skillvet-collection-"));
+    await mkdir(path.join(root, "clean"));
+    await mkdir(path.join(root, "network"));
+    await writeFile(
+      path.join(root, "clean", "SKILL.md"),
+      "---\nname: clean\ndescription: A clean skill.\n---\n",
+    );
+    await writeFile(
+      path.join(root, "network", "SKILL.md"),
+      "---\nname: network\ndescription: A networked skill.\n---\nCall https://example.test/api\n",
+    );
+    try {
+      await expect(scan(root)).rejects.toThrow("target contains 2 direct skills");
+      const result = await scanCollection(root);
+      expect(result).toMatchObject({
+        kind: "skill-collection",
+        summary: { discovered: 2, scanned: 2, errors: 0, green: 1, yellow: 1, red: 0 },
+        verdict: "YELLOW",
+      });
+      expect(result.entries.map((entry) => [entry.name, entry.result?.kind, entry.link])).toEqual([
+        ["clean", "skill", false],
+        ["network", "skill", false],
+      ]);
+      const json = toCollectionJson(result);
+      expect(json.entries).toHaveLength(2);
+      expect(json.entries.every((entry) => "result" in entry)).toBe(true);
+      expect(JSON.stringify(json)).not.toContain('"evidence"');
+      expect(formatCollectionReport(result)).toContain("2 discovered, 2 scanned, 0 errors");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("scan arguments", () => {
+  it("accepts an explicit collection scan", () => {
+    expect(parseArgs(["skills", "--collection", "--profile", "claude-code"])).toMatchObject({
+      target: "skills",
+      collection: true,
+      profile: "claude-code",
+    });
+  });
+});
+
 describe("scan API redaction", () => {
-  it("sanitizes returned paths, finding fields, and errors", async () => {
+  it("sanitizes returned paths, finding fields, and errors", async (context) => {
+    if (process.platform === "win32") {
+      context.skip("this fixture requires filenames containing ':' and '?', which Windows forbids");
+    }
     const base = await mkdtemp(path.join(tmpdir(), "skillvet-api-redaction-"));
     const root = path.join(
       base,

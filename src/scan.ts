@@ -1,4 +1,5 @@
 import { checkBinariesAsync } from "./checks/binaries.js";
+import { stat } from "node:fs/promises";
 import { checkManifest } from "./checks/manifest.js";
 import { checkObfuscation } from "./checks/obfuscation.js";
 import { checkPhoneHome } from "./checks/phone-home.js";
@@ -9,6 +10,11 @@ import { loadContext } from "./context.js";
 import { resolveTarget } from "./resolve.js";
 import { redactTarget } from "./safe-http.js";
 import { scoreFindings } from "./score.js";
+import {
+  discoverDirectSkills,
+  hasOwnSkillManifest,
+  SkillCollectionTargetError,
+} from "./skill-collection.js";
 import { redactFinding, redactUrls } from "./walk.js";
 import {
   SCORE_RED,
@@ -23,6 +29,7 @@ export async function scan(target: string, options: ScanOptions = {}): Promise<S
   try {
     return await scanTarget(target, options);
   } catch (error) {
+    if (error instanceof SkillCollectionTargetError) throw error;
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(redactUrls(message));
   }
@@ -31,6 +38,13 @@ export async function scan(target: string, options: ScanOptions = {}): Promise<S
 async function scanTarget(target: string, options: ScanOptions): Promise<ScanResult> {
   const resolved = await resolveTarget(target);
   try {
+    const info = await stat(resolved.path);
+    if (info.isDirectory() && !await hasOwnSkillManifest(resolved.path)) {
+      const discovery = await discoverDirectSkills(resolved.path);
+      if (discovery.skills.length > 1) {
+        throw new SkillCollectionTargetError(discovery.skills.length);
+      }
+    }
     const ctx = await loadContext(resolved.path, options.profile);
     const checks: CheckResult[] = [
       checkPhoneHome(ctx),
