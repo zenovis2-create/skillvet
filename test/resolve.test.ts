@@ -17,18 +17,26 @@ import {
 } from "../src/github.js";
 import { resolveContainedPath, resolveTarget } from "../src/resolve.js";
 import { collectLimitedBody, isBlockedAddress, redactTarget } from "../src/safe-http.js";
+import { isSymlinkPrivilegeError } from "./helpers.js";
 
 const execFileAsync = promisify(execFile);
 
 describe("remote subdirectory resolution", () => {
-  it("rejects lexical and symlink escapes from the extracted root", async () => {
+  it("rejects lexical and symlink escapes from the extracted root", async (context) => {
     const base = await mkdtemp(path.join(tmpdir(), "skillvet-resolve-test-"));
     const root = path.join(base, "root");
     const outside = path.join(base, "outside");
     await mkdir(root);
     await mkdir(outside);
-    await symlink(outside, path.join(root, "link"));
     try {
+      try {
+        await symlink(outside, path.join(root, "link"));
+      } catch (error) {
+        if (isSymlinkPrivilegeError(error)) {
+          context.skip("symlink creation is unavailable in this environment");
+        }
+        throw error;
+      }
       await expect(resolveContainedPath(root, "../../outside")).rejects.toThrow(/outside/i);
       await expect(resolveContainedPath(root, "link")).rejects.toThrow(/outside/i);
       await expect(resolveContainedPath(root, ".")).resolves.toBe(await realpath(root));

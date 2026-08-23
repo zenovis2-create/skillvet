@@ -9,6 +9,7 @@ export interface CliArgs {
   version: boolean;
   noColor: boolean;
   profile?: ScanProfile;
+  collection: boolean;
 }
 
 export function parseArgs(argv: string[]): CliArgs {
@@ -18,6 +19,7 @@ export function parseArgs(argv: string[]): CliArgs {
     help: false,
     version: false,
     noColor: false,
+    collection: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const raw = argv[index] ?? "";
@@ -26,6 +28,7 @@ export function parseArgs(argv: string[]): CliArgs {
     else if (raw === "--help" || raw === "-h") args.help = true;
     else if (raw === "--version" || raw === "-v") args.version = true;
     else if (raw === "--no-color") args.noColor = true;
+    else if (raw === "--collection") args.collection = true;
     else if (raw === "--profile") {
       args.profile = parseProfile(argv[++index]);
     } else if (raw.startsWith("--profile=")) {
@@ -46,15 +49,17 @@ skillvet ${VERSION} — supply-chain scanner for AI agent skills & MCP servers
 Usage:
   skillvet [scan] <path|url> [options]
   skillvet audit <workspace> [options]
+  skillvet audit codex <CODEX_HOME> [options]
 
 Commands:
   scan        supply-chain scan for an AI agent skill or MCP server (default)
-  audit       CI-grade static audit for a Claude Code workspace
+  audit       CI-grade static audit for a Claude Code workspace or Codex home
 
 Scan options:
   --json       machine-readable report
   --strict     any finding is YELLOW; score ≥ ${SCORE_YELLOW} is RED
   --profile    portable-agent-skill (default) or claude-code
+  --collection scan each direct child skill instead of treating the target as one skill
   --no-color   disable ANSI colors
   -h, --help   show this help
   -v, --version

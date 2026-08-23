@@ -1,6 +1,6 @@
 # skillvet
 
-Supply-chain scanner for AI agent skills and MCP servers, plus a CI-grade static audit for Claude Code workspaces.
+Supply-chain scanner for AI agent skills and MCP servers, plus static audits for Claude Code workspaces and Codex homes.
 
 [![stars](https://img.shields.io/github/stars/zenovis2-create/skillvet?style=flat)](https://github.com/zenovis2-create/skillvet)
 [![CI](https://img.shields.io/github/actions/workflow/status/zenovis2-create/skillvet/ci.yml)](https://github.com/zenovis2-create/skillvet/actions/workflows/ci.yml)
@@ -72,6 +72,43 @@ external edges as partial coverage instead of reading outside the declared works
 The JSON schema separates raw `observations`, evaluated `findings`, coverage, and
 `suppressedEvaluations` so a CI parser cannot mistake syntactic facts for validated
 runtime behavior.
+
+## Audit a Codex home
+
+Codex installations have a different load surface: `config.toml`, direct skill
+directories, `skills.config` overrides, plugins, and MCP servers. Use the dedicated
+local-only mode instead of treating the entire `skills` directory as one skill:
+
+```bash
+npx skillvet audit codex "$CODEX_HOME" --json
+```
+
+It does not launch Codex, start MCP servers, download plugins, or execute skill
+content. It reports direct skill count, enabled/disabled overrides, filesystem links
+and junctions, discovery-metadata byte count, configured MCP transport/endpoints,
+and disabled plugins that retain child settings or trusted-hook state. Unsupported or
+unreadable modeled surfaces are reported as `PARTIAL` coverage rather than folded into
+a security verdict.
+
+High-severity configuration contradictions or unresolved override targets return exit
+code 2; partial coverage returns exit code 3. Warnings remain visible in the report
+without making the configuration audit fail.
+
+## Scan a skill collection
+
+When a directory contains multiple direct child `SKILL.md` folders, scan each skill
+independently:
+
+```bash
+npx skillvet scan "$CODEX_HOME/skills" --collection --no-color
+```
+
+Without `--collection`, `scan` rejects such a target with a concrete count and hint
+instead of combining unrelated skills, documentation, and link coverage into one
+misleading score. Collection JSON emits one result per skill and intentionally omits
+raw finding evidence from nested results, keeping large reports safer to store and
+inspect on endpoint-protected systems. Individual-skill JSON preserves the full
+existing evidence contract.
 
 ## Profiles
 

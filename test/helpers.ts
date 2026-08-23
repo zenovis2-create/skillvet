@@ -54,3 +54,9 @@ export function skillMd(fields: {
   lines.push("---", "", "# fixture", "");
   return lines.join("\n");
 }
+
+export function isSymlinkPrivilegeError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) return false;
+  const code = (error as { code?: unknown }).code;
+  return code === "EPERM" || code === "EACCES";
+}

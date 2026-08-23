@@ -1,6 +1,12 @@
 import { exitCodeFor } from "./score.js";
 import { redactTarget } from "./safe-http.js";
-import { VERSION, type CheckResult, type ScanResult, type Verdict } from "./types.js";
+import {
+  VERSION,
+  type CheckResult,
+  type CollectionScanResult,
+  type ScanResult,
+  type Verdict,
+} from "./types.js";
 import { redactFinding, redactUrls } from "./walk.js";
 
 const RESET = "\x1b[0m";
@@ -24,6 +30,44 @@ export function formatReport(result: ScanResult, options: ReportOptions = {}): s
   return formatTable(result, color);
 }
 
+export function formatCollectionReport(
+  result: CollectionScanResult,
+  options: ReportOptions = {},
+): string {
+  if (options.json) return JSON.stringify(toCollectionJson(result), null, 2);
+  const color = options.color ?? false;
+  const c = paint(color);
+  const lines: string[] = [];
+  lines.push(`${c.bold("skillvet")} ${c.dim(VERSION)}   collection  ${redactUrls(redactTarget(result.target))}`);
+  lines.push(
+    `${c.dim("skills")} ${result.summary.discovered} discovered, ${result.summary.scanned} scanned, ${result.summary.errors} errors${result.strict ? c.dim("   --strict") : ""}`,
+  );
+  lines.push("");
+  for (const entry of result.entries) {
+    const state = entry.error ? "ERROR" : entry.result?.verdict ?? "ERROR";
+    const link = entry.link ? " link" : "";
+    const detail = entry.error
+      ? redactUrls(entry.error)
+      : entry.result
+        ? `${entry.result.score}/100`
+        : "not scanned";
+    lines.push(`  ${c.status(state === "ERROR" ? "RED" : state)}  ${entry.name}${link}  ${detail}`);
+  }
+  if (result.skipped.length > 0) {
+    lines.push("");
+    lines.push(c.dim("coverage"));
+    for (const skipped of result.skipped) {
+      lines.push(`  ${c.dim("-")} ${redactUrls(skipped.relPath)}  ${redactUrls(skipped.reason)}`);
+    }
+  }
+  lines.push("");
+  lines.push(
+    `${c.bold("VERDICT")}  ${c.verdict(result.verdict, `${result.verdict}   ${result.summary.green} GREEN, ${result.summary.yellow} YELLOW, ${result.summary.red} RED`)}`,
+  );
+  lines.push("");
+  return lines.join("\n");
+}
+
 export function toJson(result: ScanResult) {
   return {
     version: result.version,
@@ -42,6 +86,57 @@ export function toJson(result: ScanResult) {
     })),
     findings: result.findings.map(redactFinding),
   };
+}
+
+export function toCollectionJson(result: CollectionScanResult) {
+  return {
+    version: result.version,
+    target: redactUrls(redactTarget(result.target)),
+    resolvedPath: redactUrls(result.resolvedPath),
+    kind: result.kind,
+    strict: result.strict,
+    profile: result.profile,
+    verdict: result.verdict,
+    exitCode: exitCodeFor(result.verdict),
+    summary: result.summary,
+    entries: result.entries.map((entry) => ({
+      name: entry.name,
+      path: redactUrls(entry.path),
+      link: entry.link,
+      ...(entry.error ? { error: redactUrls(entry.error) } : {}),
+      ...(entry.result ? { result: toCollectionEntryJson(entry.result) } : {}),
+    })),
+    skipped: result.skipped.map((skipped) => ({
+      relPath: redactUrls(skipped.relPath),
+      reason: redactUrls(skipped.reason),
+    })),
+  };
+}
+
+function toCollectionEntryJson(result: ScanResult) {
+  return {
+    version: result.version,
+    target: redactUrls(redactTarget(result.target)),
+    resolvedPath: redactUrls(result.resolvedPath),
+    kind: result.kind,
+    verdict: result.verdict,
+    score: result.score,
+    strict: result.strict,
+    thresholds: result.thresholds,
+    exitCode: exitCodeFor(result.verdict),
+    checks: result.checks.map((check) => ({
+      id: check.id,
+      score: check.score,
+      findings: check.findings.map(collectionFinding),
+    })),
+    findings: result.findings.map(collectionFinding),
+  };
+}
+
+function collectionFinding(finding: import("./types.js").Finding) {
+  const safe = redactFinding(finding);
+  const { evidence: _evidence, ...summary } = safe;
+  return summary;
 }
 
 function formatTable(result: ScanResult, color: boolean): string {
