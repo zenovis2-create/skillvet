@@ -12,6 +12,7 @@ export interface AuditCliArgs {
   failOnUnreviewed: boolean;
   requireReviewed: boolean;
   assumeContext?: number;
+  codexProjectDocMaxBytes?: number;
 }
 
 export function parseAuditArgs(argv: string[]): AuditCliArgs {
@@ -46,6 +47,14 @@ export function parseAuditArgs(argv: string[]): AuditCliArgs {
       args.assumeContext = positiveInteger(requiredValue(argv, ++index, "--assume-context"));
     } else if (raw.startsWith("--assume-context=")) {
       args.assumeContext = positiveInteger(raw.slice("--assume-context=".length));
+    } else if (raw === "--assume-codex-project-doc-max-bytes") {
+      args.codexProjectDocMaxBytes = positiveInteger(
+        requiredValue(argv, ++index, "--assume-codex-project-doc-max-bytes"),
+      );
+    } else if (raw.startsWith("--assume-codex-project-doc-max-bytes=")) {
+      args.codexProjectDocMaxBytes = positiveInteger(
+        raw.slice("--assume-codex-project-doc-max-bytes=".length),
+      );
     } else if (raw.startsWith("-")) {
       throw new Error(`unknown flag: ${redactUrls(raw)}`);
     } else if (!args.target) {
@@ -78,7 +87,7 @@ function positiveInteger(value: string): number {
 
 export function auditHelpText(version: string): string {
   return `\
-skillvet ${version} — CI-grade audit for Claude Code workspaces
+skillvet ${version} — CI-grade workspace audit for Claude Code and Codex instructions
 
 Usage:
   skillvet audit <workspace> [options]
@@ -90,6 +99,8 @@ Options:
   --fail-on-unreviewed              allow selected unreviewed findings to fail
   --require-reviewed                fail when version review coverage is unavailable
   --assume-context <tokens>         listing budget assumption (default: 200000)
+  --assume-codex-project-doc-max-bytes <bytes>
+                                   Codex project-instruction cap assumption (default: 32768)
   --json                            machine-readable report
   --no-color                        disable ANSI colors
   -h, --help                        show this help

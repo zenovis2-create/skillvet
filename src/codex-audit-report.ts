@@ -41,6 +41,21 @@ export function formatCodexAuditReport(
     lines.push(`  ${plugin.id}  enabled=${plugin.enabled}  child-settings=${plugin.childSettings}  trusted-hooks=${plugin.trustedHookStates}`);
   }
   lines.push("");
+  lines.push("GLOBAL INSTRUCTIONS");
+  if (!result.instructions.global.agents && !result.instructions.global.override) lines.push("  none");
+  if (result.instructions.global.agents) {
+    lines.push(`  ${result.instructions.global.agents.path}  ${result.instructions.global.agents.bytes} B`);
+  }
+  if (result.instructions.global.override) {
+    lines.push(`  ${result.instructions.global.override.path}  ${result.instructions.global.override.bytes} B`);
+  }
+  if (result.instructions.global.effective) {
+    lines.push(`  effective  ${result.instructions.global.effective}`);
+  }
+  if (result.instructions.projectDocMaxBytes !== undefined) {
+    lines.push(`  project document limit  ${result.instructions.projectDocMaxBytes} B`);
+  }
+  lines.push("");
   lines.push("FINDINGS");
   if (result.findings.length === 0) lines.push("  none");
   for (const finding of result.findings) {

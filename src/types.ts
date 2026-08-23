@@ -116,6 +116,20 @@ export interface CodexPlugin {
   line: number;
 }
 
+export interface CodexInstructionFile {
+  path: string;
+  bytes: number;
+}
+
+export interface CodexInstructionConfiguration {
+  global: {
+    agents?: CodexInstructionFile;
+    override?: CodexInstructionFile;
+    effective?: "AGENTS.md" | "AGENTS.override.md";
+  };
+  projectDocMaxBytes?: number;
+}
+
 export interface CodexAuditResult {
   version: string;
   target: string;
@@ -139,6 +153,7 @@ export interface CodexAuditResult {
   skills: CodexSkillInventoryItem[];
   mcpServers: CodexMcpServer[];
   plugins: CodexPlugin[];
+  instructions: CodexInstructionConfiguration;
   observations: CodexAuditObservation[];
   findings: CodexAuditFinding[];
 }

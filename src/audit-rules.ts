@@ -14,6 +14,47 @@ export interface ProviderRule {
   until?: string;
 }
 
+export const WORKSPACE_INSTRUCTION_RULESET: {
+  readonly id: string;
+  readonly checks: readonly ProviderRule[];
+} = {
+  id: "workspace-instructions/docs-2026-08-23",
+  checks: [
+    {
+      id: "CODEX_OVERRIDE_REPLACES_AGENTS",
+      dimension: "conflict",
+      confidence: "deterministic",
+      severity: "warning",
+      defaultFail: false,
+      since: "docs-2026-08-23",
+    },
+    {
+      id: "CODEX_PROJECT_INSTRUCTION_CAP_RISK",
+      dimension: "context",
+      confidence: "deterministic",
+      severity: "warning",
+      defaultFail: false,
+      since: "docs-2026-08-23",
+    },
+    {
+      id: "CLAUDE_MEMORY_LINE_GUIDANCE",
+      dimension: "context",
+      confidence: "heuristic",
+      severity: "warning",
+      defaultFail: false,
+      since: "docs-2026-08-23",
+    },
+    {
+      id: "CLAUDE_PROJECT_MEMORY_LOCATION_CONFLICT",
+      dimension: "conflict",
+      confidence: "deterministic",
+      severity: "warning",
+      defaultFail: false,
+      since: "docs-2026-08-23",
+    },
+  ],
+};
+
 export const CLAUDE_CODE_RULESET: {
   readonly id: string;
   readonly reviewedThrough: string;

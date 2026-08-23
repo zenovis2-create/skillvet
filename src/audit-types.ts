@@ -1,6 +1,7 @@
 export type AuditDimension = "context" | "hook" | "config" | "conflict" | "security";
 export type AuditConfidence = "deterministic" | "heuristic" | "observed";
 export type AuditSurface = "main" | "conditional" | "skill" | "subagent";
+export type AuditRuntime = "claude-code" | "codex";
 export type AuditSeverity = "info" | "warning" | "high" | "critical";
 export type AuditReview = "reviewed" | "unreviewed" | "unknown";
 export type AuditCoverageStatus = "FULL" | "PARTIAL";
@@ -26,6 +27,7 @@ export interface AuditFinding {
   ci: AuditCiPolicy;
   message: string;
   evidence: AuditEvidence;
+  runtime?: AuditRuntime;
 }
 
 export interface AuditObservation {
@@ -34,6 +36,7 @@ export interface AuditObservation {
   message: string;
   value: string | number | boolean;
   evidence: AuditEvidence;
+  runtime?: AuditRuntime;
 }
 
 export interface AuditEvaluation {
@@ -62,6 +65,7 @@ export interface LoadSurface {
   listingUpper?: number;
   overflowAtAssumedContext?: boolean;
   measurement: "observed" | "candidate" | "measured" | "partial";
+  runtime?: AuditRuntime;
 }
 
 export interface AuditProvider {
@@ -84,6 +88,7 @@ export interface AuditResult {
   provider: AuditProvider;
   coverage: AuditCoverage;
   assumedContext: number;
+  assumedCodexProjectDocMaxBytes: number;
   surfaces: LoadSurface[];
   observations: AuditObservation[];
   findings: AuditFinding[];
@@ -99,4 +104,5 @@ export interface AuditOptions {
   failOnUnreviewed?: boolean;
   requireReviewed?: boolean;
   assumeContext?: number;
+  codexProjectDocMaxBytes?: number;
 }

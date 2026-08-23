@@ -27,6 +27,7 @@ export function toAuditJson(result: AuditResult, options: AuditOptions = {}) {
     provider: result.provider,
     coverage: result.coverage,
     assumedContext: result.assumedContext,
+    assumedCodexProjectDocMaxBytes: result.assumedCodexProjectDocMaxBytes,
     status: result.status,
     exitCode: auditExitCode(result, options),
     surfaces: result.surfaces,
@@ -44,6 +45,9 @@ function formatText(result: AuditResult, color: boolean, options: AuditOptions |
   const version = result.provider.version ? `@${result.provider.version}` : "";
   lines.push(`provider  ${result.provider.id}${version}  (${result.provider.source}; ${result.provider.review})`);
   lines.push(
+    `assumptions  Claude context ${result.assumedContext} tokens  Codex project docs ${result.assumedCodexProjectDocMaxBytes} B`,
+  );
+  lines.push(
     `coverage  ${c.status(result.coverage.status)}${result.coverage.reasons.length ? `  ${result.coverage.reasons.length} limitation(s)` : ""}`,
   );
   for (const reason of result.coverage.reasons) lines.push(`  ${c.dim("•")} ${reason}`);
@@ -60,7 +64,8 @@ function formatText(result: AuditResult, color: boolean, options: AuditOptions |
   if (result.observations.length > 0) {
     lines.push(c.dim("FILE FACTS / DETECTED CONFIGURATION"));
     for (const observation of result.observations) {
-      lines.push(`  ${observation.id}  ${observation.evidence.path}${observation.evidence.pointer ?? ""}`);
+      const runtime = observation.runtime ? `${observation.runtime}  ` : "";
+      lines.push(`  ${runtime}${observation.id}  ${observation.evidence.path}${observation.evidence.pointer ?? ""}`);
     }
     lines.push("");
   }
@@ -69,8 +74,9 @@ function formatText(result: AuditResult, color: boolean, options: AuditOptions |
   if (result.findings.length === 0) lines.push("  —");
   for (const finding of result.findings) {
     const eligibility = finding.ci.eligible ? "eligible" : "not eligible";
+    const runtime = finding.runtime ? `${finding.runtime}  ` : "";
     lines.push(
-      `  ${c.severity(finding.severity, finding.severity.toUpperCase())}  ${finding.dimension}/${finding.surface}  ${finding.id}  ${finding.message} (${eligibility})`,
+      `  ${c.severity(finding.severity, finding.severity.toUpperCase())}  ${runtime}${finding.dimension}/${finding.surface}  ${finding.id}  ${finding.message} (${eligibility})`,
     );
   }
   if (result.suppressedEvaluations.length > 0) {
@@ -88,7 +94,7 @@ function formatText(result: AuditResult, color: boolean, options: AuditOptions |
 }
 
 function surfaceLine(surface: LoadSurface): string {
-  const parts = [surface.id];
+  const parts = [surface.runtime ?? "unknown", surface.id];
   if (surface.rawBytes !== undefined) parts.push(`raw ${surface.rawBytes} B`);
   if (surface.injectedBytes !== undefined) parts.push(`injected ${surface.injectedBytes} B`);
   if (surface.listingLower !== undefined) parts.push(`listing_lower ${surface.listingLower} B`);

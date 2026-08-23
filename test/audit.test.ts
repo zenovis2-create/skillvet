@@ -298,6 +298,124 @@ describe("audit provider boundaries", () => {
       await workspace.cleanup();
     }
   });
+
+  it("models Codex project instructions alongside Claude startup memory", async () => {
+    const agents = "# shared policy\n";
+    const override = "# curated Codex policy\n";
+    const nested = "# API policy\n";
+    const projectMemory = [
+      ...Array.from({ length: 201 }, (_, index) => `- instruction ${index + 1}`),
+      "@AGENTS.md",
+      "",
+    ].join("\n");
+    const localMemory = "# Claude-specific policy\n";
+    const unscopedRule = "# Required everywhere\n";
+    const workspace = await withWorkspace({
+      "AGENTS.md": agents,
+      "AGENTS.override.md": override,
+      "packages/api/AGENTS.md": nested,
+      "CLAUDE.md": projectMemory,
+      "CLAUDE.local.md": localMemory,
+      ".claude/rules/everywhere.md": unscopedRule,
+    });
+    try {
+      const result = await audit(workspace.root, {
+        provider: "claude-code@2.1.239",
+        codexProjectDocMaxBytes: 1,
+      });
+      const rootCodex = result.surfaces.find((surface) => surface.id === "codex:project:.");
+      const nestedCodex = result.surfaces.find((surface) => surface.id === "codex:project:packages/api");
+      const claudeMain = result.surfaces.find((surface) => surface.id === "main:start");
+      expect(rootCodex).toMatchObject({
+        runtime: "codex",
+        rawBytes: Buffer.byteLength(override),
+        injectedBytes: Buffer.byteLength(override),
+      });
+      expect(nestedCodex).toMatchObject({
+        runtime: "codex",
+        rawBytes: Buffer.byteLength(nested),
+        injectedBytes: Buffer.byteLength(override) + Buffer.byteLength(nested),
+      });
+      expect(claudeMain).toMatchObject({
+        runtime: "claude-code",
+        rawBytes: Buffer.byteLength(projectMemory) + Buffer.byteLength(localMemory) + Buffer.byteLength(unscopedRule),
+        injectedBytes: Buffer.byteLength(projectMemory) + Buffer.byteLength(localMemory) + Buffer.byteLength(unscopedRule) + Buffer.byteLength(agents),
+      });
+      expect(result.observations.map((observation) => observation.id)).toEqual(expect.arrayContaining([
+        "CLAUDE_IMPORTS_AGENTS",
+        "CODEX_PROJECT_INSTRUCTION_BYTES",
+      ]));
+      expect(result.findings.map((finding) => finding.id)).toEqual(expect.arrayContaining([
+        "CLAUDE_MEMORY_LINE_GUIDANCE",
+        "CODEX_OVERRIDE_REPLACES_AGENTS",
+        "CODEX_PROJECT_INSTRUCTION_CAP_RISK",
+      ]));
+      expect(result.findings.find((finding) => finding.id === "CLAUDE_MEMORY_LINE_GUIDANCE")?.ci.eligible)
+        .toBe(false);
+    } finally {
+      await workspace.cleanup();
+    }
+  });
+
+  it("keeps static Codex instruction findings eligible when Claude version review expires", async () => {
+    const workspace = await withWorkspace({
+      "AGENTS.md": "# shared\n",
+      "AGENTS.override.md": "# curated\n",
+    });
+    try {
+      const result = await audit(workspace.root, { provider: "claude-code@2.1.240" });
+      const override = result.findings.find((finding) => finding.id === "CODEX_OVERRIDE_REPLACES_AGENTS");
+      expect(override?.ci.eligible).toBe(true);
+      expect(result.suppressedEvaluations.map((item) => item.id)).not.toContain("CODEX_OVERRIDE_REPLACES_AGENTS");
+      expect(auditExitCode(result, { failOn: ["conflict"] })).toBe(2);
+    } finally {
+      await workspace.cleanup();
+    }
+  });
+
+  it("skips an empty Codex override instead of shadowing AGENTS.md", async () => {
+    const workspace = await withWorkspace({
+      "AGENTS.md": "# shared\n",
+      "AGENTS.override.md": "",
+    });
+    try {
+      const result = await audit(workspace.root, { provider: "claude-code@2.1.239" });
+      expect(result.surfaces.find((surface) => surface.id === "codex:project:.")).toMatchObject({
+        rawBytes: Buffer.byteLength("# shared\n"),
+      });
+      expect(result.findings.map((finding) => finding.id)).not.toContain("CODEX_OVERRIDE_REPLACES_AGENTS");
+      expect(result.observations.map((observation) => observation.id)).toContain("CODEX_EMPTY_INSTRUCTION_SKIPPED");
+    } finally {
+      await workspace.cleanup();
+    }
+  });
+
+  it("uses .claude/CLAUDE.md as the alternate project memory and flags both locations", async () => {
+    const alternate = await withWorkspace({ ".claude/CLAUDE.md": "# project memory\n" });
+    try {
+      const result = await audit(alternate.root, { provider: "claude-code@2.1.239" });
+      expect(result.surfaces.find((surface) => surface.id === "main:start")).toMatchObject({
+        rawBytes: Buffer.byteLength("# project memory\n"),
+      });
+      expect(result.coverage.status).toBe("FULL");
+    } finally {
+      await alternate.cleanup();
+    }
+
+    const ambiguous = await withWorkspace({
+      "CLAUDE.md": "# root memory\n",
+      ".claude/CLAUDE.md": "# alternate memory\n",
+    });
+    try {
+      const result = await audit(ambiguous.root, { provider: "claude-code@2.1.239" });
+      expect(result.coverage.reasons).toContain("AMBIGUOUS_CLAUDE_PROJECT_MEMORY: CLAUDE.md and .claude/CLAUDE.md");
+      expect(result.findings.map((finding) => finding.id)).toContain("CLAUDE_PROJECT_MEMORY_LOCATION_CONFLICT");
+      expect(result.surfaces.find((surface) => surface.id === "main:start")?.rawBytes)
+        .toBe(Buffer.byteLength("# root memory\n"));
+    } finally {
+      await ambiguous.cleanup();
+    }
+  });
 });
 
 describe("audit output contract", () => {
@@ -377,6 +495,16 @@ describe("audit argument parsing", () => {
       provider: "claude-code@2.1.239",
       failOn: ["security", "hook"],
       requireReviewed: true,
+    });
+  });
+
+  it("accepts a Codex project-document limit assumption", () => {
+    expect(parseAuditArgs([
+      ".",
+      "--assume-codex-project-doc-max-bytes=16384",
+    ])).toMatchObject({
+      target: ".",
+      codexProjectDocMaxBytes: 16384,
     });
   });
 });

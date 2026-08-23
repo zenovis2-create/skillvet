@@ -171,6 +171,51 @@ enabled = true
     }
   });
 
+  it("reports global instruction precedence and a configured project-document limit", async () => {
+    const home = await withCodexHome(
+      "project_doc_max_bytes = 16384\n",
+      { review: "---\nname: review\ndescription: Review code.\n---\n" },
+    );
+    await writeFile(path.join(home.root, "AGENTS.md"), "# shared policy\n");
+    await writeFile(path.join(home.root, "AGENTS.override.md"), "# curated policy\n");
+    try {
+      const result = await auditCodex(home.root);
+      expect(result.instructions).toMatchObject({
+        global: {
+          agents: { path: "AGENTS.md", bytes: Buffer.byteLength("# shared policy\n") },
+          override: { path: "AGENTS.override.md", bytes: Buffer.byteLength("# curated policy\n") },
+          effective: "AGENTS.override.md",
+        },
+        projectDocMaxBytes: 16384,
+      });
+      expect(result.observations.map((observation) => observation.id)).toEqual(expect.arrayContaining([
+        "CODEX_GLOBAL_INSTRUCTION_BYTES",
+        "CODEX_PROJECT_DOC_MAX_BYTES",
+      ]));
+      expect(result.findings.map((finding) => finding.id)).toContain("CODEX_GLOBAL_OVERRIDE_REPLACES_AGENTS");
+      expect(formatCodexAuditReport(result)).toContain("GLOBAL INSTRUCTIONS");
+      expect(result.status).toBe("PASS");
+    } finally {
+      await home.cleanup();
+    }
+  });
+
+  it("falls back to global AGENTS.md when the global override is empty", async () => {
+    const home = await withCodexHome(
+      "",
+      { review: "---\nname: review\ndescription: Review code.\n---\n" },
+    );
+    await writeFile(path.join(home.root, "AGENTS.md"), "# shared policy\n");
+    await writeFile(path.join(home.root, "AGENTS.override.md"), "");
+    try {
+      const result = await auditCodex(home.root);
+      expect(result.instructions.global.effective).toBe("AGENTS.md");
+      expect(result.findings.map((finding) => finding.id)).not.toContain("CODEX_GLOBAL_OVERRIDE_REPLACES_AGENTS");
+    } finally {
+      await home.cleanup();
+    }
+  });
+
   it("parses the dedicated Codex audit arguments", () => {
     expect(parseCodexAuditArgs(["C:/codex", "--json", "--no-color", "--profile", "lean"])).toMatchObject({
       target: "C:/codex",

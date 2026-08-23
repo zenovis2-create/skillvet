@@ -1,6 +1,6 @@
 # skillvet
 
-Supply-chain scanner for AI agent skills and MCP servers, plus static audits for Claude Code workspaces and Codex homes.
+Supply-chain scanner for AI agent skills and MCP servers, plus static audits for Claude Code and Codex instruction/configuration surfaces.
 
 [![stars](https://img.shields.io/github/stars/zenovis2-create/skillvet?style=flat)](https://github.com/zenovis2-create/skillvet)
 [![CI](https://img.shields.io/github/actions/workflow/status/zenovis2-create/skillvet/ci.yml)](https://github.com/zenovis2-create/skillvet/actions/workflows/ci.yml)
@@ -28,11 +28,26 @@ npm i -D skillvet
 npx skillvet ./my-skill --strict
 ```
 
-## Audit a Claude Code workspace
+## Audit a workspace instruction stack
 
 `scan` remains the package supply-chain scanner. `audit` is a separate, local-only
-workspace command: it reports load-surface facts, configured hooks, and version-gated
-Claude Code findings without downloading or executing workspace content.
+workspace command: it reports Claude Code load surfaces/configured hooks and the
+Codex `AGENTS.md` hierarchy without downloading or executing workspace content.
+
+The instruction ledger makes startup-context work measurable instead of deleting prose
+blindly:
+
+- Claude: one project-memory location (`CLAUDE.md` or `.claude/CLAUDE.md`),
+  `CLAUDE.local.md`, unscoped/path-scoped rules, and in-workspace `@file` imports.
+  `main:start` distinguishes source bytes from a conservative expanded-source estimate
+  based on unique imports. Both documented project-memory locations are flagged as
+  ambiguous rather than summed.
+- Codex: each in-workspace `AGENTS.md` or `AGENTS.override.md`, the effective file at
+  each directory level, and the within-target inherited chain. An override is reported
+  because it replaces, rather than appends to, `AGENTS.md` at that level.
+
+The workspace target is the project boundary for this measurement. Audit the Codex home
+separately to inspect its global layer and configured instruction cap.
 
 For an interactive local audit, opt in to version detection:
 
@@ -48,6 +63,13 @@ npx skillvet audit . \
   --provider claude-code@<version> \
   --fail-on=security \
   --require-reviewed
+```
+
+Use the documented Codex default only as an explicit measurement assumption; override
+it when the active configuration differs:
+
+```bash
+npx skillvet audit . --assume-codex-project-doc-max-bytes=32768
 ```
 
 `audit` never assumes a provider version. Without one it reports file facts and
@@ -66,17 +88,27 @@ Use `--fail-on-unreviewed` only when you intentionally want an unreviewed provid
 version to participate in that gate.
 
 Current deterministic rules cover modeled wildcard hooks, public HTTP hooks, header
-environment interpolation, and candidate skill-listing overflow.
+environment interpolation, candidate skill-listing overflow, Codex override precedence,
+within-target project-instruction cap risk, and conflicting Claude project-memory
+locations. `CLAUDE.md` files over the documented 200-line guidance are advisory
+findings, not CI-eligible failures.
 The load ledger also follows in-workspace `CLAUDE.md` imports and marks unresolved or
 external edges as partial coverage instead of reading outside the declared workspace.
 The JSON schema separates raw `observations`, evaluated `findings`, coverage, and
 `suppressedEvaluations` so a CI parser cannot mistake syntactic facts for validated
 runtime behavior.
 
+The modeled instruction behavior is based on the official [Codex instruction-file
+documentation](https://learn.chatgpt.com/docs/agent-configuration/agents-md) and
+[Claude Code memory documentation](https://code.claude.com/docs/en/memory). The report
+is static evidence, not a claim that every global/runtime source was loaded in a live
+session.
+
 ## Audit a Codex home
 
-Codex installations have a different load surface: `config.toml`, direct skill
-directories, `skills.config` overrides, plugins, and MCP servers. Use the dedicated
+Codex installations have a different load surface: `config.toml`, global `AGENTS.md` /
+`AGENTS.override.md`, direct skill directories, `skills.config` overrides, plugins, and
+MCP servers. Use the dedicated
 local-only mode instead of treating the entire `skills` directory as one skill:
 
 ```bash
@@ -86,9 +118,9 @@ npx skillvet audit codex "$CODEX_HOME" --json
 It does not launch Codex, start MCP servers, download plugins, or execute skill
 content. It reports direct skill count, enabled/disabled overrides, filesystem links
 and junctions, discovery-metadata byte count, configured MCP transport/endpoints,
-and disabled plugins that retain child settings or trusted-hook state. Unsupported or
-unreadable modeled surfaces are reported as `PARTIAL` coverage rather than folded into
-a security verdict.
+global instruction precedence, `project_doc_max_bytes`, and disabled plugins that
+retain child settings or trusted-hook state. Unsupported or unreadable modeled surfaces
+are reported as `PARTIAL` coverage rather than folded into a security verdict.
 
 High-severity configuration contradictions or unresolved override targets return exit
 code 2; partial coverage returns exit code 3. Warnings remain visible in the report
