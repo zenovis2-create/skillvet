@@ -74,6 +74,17 @@ const emptyHttpHookPolicy = JSON.stringify({
   httpHookAllowedEnvVars: [],
 }, null, 2);
 
+function httpHook(url: string): string {
+  return JSON.stringify({
+    hooks: {
+      PostToolUse: [{
+        matcher: "Edit",
+        hooks: [{ type: "http", url }],
+      }],
+    },
+  }, null, 2);
+}
+
 describe("audit provider boundaries", () => {
   it("keeps version-gated semantics out of an unknown-version audit", async () => {
     const workspace = await withWorkspace({
@@ -173,6 +184,27 @@ describe("audit provider boundaries", () => {
       expect(auditExitCode(result, { requireReviewed: true })).toBe(3);
     } finally {
       await workspace.cleanup();
+    }
+  });
+
+  it("treats IPv4-mapped loopback and RFC1918 HTTP targets as local", async () => {
+    for (const url of [
+      "http://[::ffff:127.0.0.1]/local",
+      "http://[::ffff:10.0.0.1]/local",
+      "http://[::ffff:172.16.0.1]/local",
+      "http://[::ffff:192.168.0.1]/local",
+    ]) {
+      const workspace = await withWorkspace({
+        ".claude/settings.json": httpHook(url),
+      });
+      try {
+        const result = await audit(workspace.root, { provider: "claude-code@2.1.63" });
+        expect(result.observations.find((observation) => observation.id === "HTTP_HOOK_DECLARED")?.value)
+          .toBe("local-or-invalid");
+        expect(result.findings).toEqual([]);
+      } finally {
+        await workspace.cleanup();
+      }
     }
   });
 

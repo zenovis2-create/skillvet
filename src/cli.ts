@@ -75,6 +75,10 @@ async function runAudit(argv: string[]): Promise<number> {
     process.stdout.write(auditHelpText(VERSION));
     return 0;
   }
+  if (args.version) {
+    process.stdout.write(`${VERSION}\n`);
+    return 0;
+  }
   if (!args.target) {
     process.stderr.write(auditHelpText(VERSION));
     return 2;

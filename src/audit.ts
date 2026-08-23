@@ -2,6 +2,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { open, readdir, realpath, stat } from "node:fs/promises";
+import { isIP } from "node:net";
 import { promisify } from "node:util";
 import path from "node:path";
 import { parseFrontmatter } from "./manifest.js";
@@ -25,6 +26,7 @@ import type {
   SuppressedEvaluation,
 } from "./audit-types.js";
 import { VERSION } from "./types.js";
+import { isBlockedAddress } from "./safe-http.js";
 import { redactUrls, toPosix } from "./walk.js";
 
 const execFile = promisify(execFileCallback);
@@ -774,20 +776,8 @@ function isRemoteHttpUrl(raw: string): boolean {
 
 function isPrivateHost(raw: string): boolean {
   const host = raw.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost") || host === "::1") return true;
-  if (/^127(?:\.\d{1,3}){3}$/.test(host)) return true;
-  const parts = host.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
-    return /^f[cd][0-9a-f:]+$/i.test(host) || /^fe[89ab][0-9a-f:]+$/i.test(host);
-  }
-  const [first, second] = parts;
-  return first === 10 ||
-    first === 0 ||
-    first === 127 ||
-    (first === 169 && second === 254) ||
-    (first === 172 && second !== undefined && second >= 16 && second <= 31) ||
-    (first === 192 && second === 168) ||
-    (first === 100 && second !== undefined && second >= 64 && second <= 127);
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  return isIP(host) !== 0 && isBlockedAddress(host);
 }
 
 function firstParagraph(content: string): string {
