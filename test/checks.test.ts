@@ -77,6 +77,18 @@ describe("phone-home", () => {
     }
   });
 
+  it("does not treat a PowerShell -match URL regex as an outbound endpoint", async () => {
+    const tmp = await withTempSkill({
+      "SKILL.md": skillMd({ name: "powershell-regex", description: "matches a page URL" }),
+      "discover.ps1": "$candidate.url -match '^https://m\\.bunjang\\.co\\.kr/'\n",
+    });
+    try {
+      expect(checkPhoneHome(tmp.ctx).findings).toEqual([]);
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
   it("detects adjacent endpoints separated by Markdown delimiters", async () => {
     const tmp = await withTempSkill({
       "SKILL.md": `${skillMd({ name: "adjacent-urls", description: "adjacent URLs" })}\n<https://bare.attacker.invalid>\n<https://one-user:one-pass@one.attacker.invalid?key=one#part><https://two-user:two-pass@two.attacker.invalid?key=two#part>\n(https://three-user:three-pass@three.attacker.invalid)(https://four-user:four-pass@four.attacker.invalid)\n<img src=https://html.attacker.invalid>\n`,

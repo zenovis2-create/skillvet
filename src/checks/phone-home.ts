@@ -173,6 +173,9 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
           allowed,
           seenHosts,
           findings,
+          false,
+          sourceLines,
+          ext,
         );
         collectUrls(
           lineView.text,
@@ -184,6 +187,8 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
           seenHosts,
           findings,
           true,
+          sourceLines,
+          ext,
         );
       }
       const urlView = normalizeUrlText(file.content, urlTextOptions);
@@ -196,6 +201,9 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
         allowed,
         seenHosts,
         findings,
+        false,
+        sourceLines,
+        ext,
       );
       collectUrls(
         urlView.text,
@@ -207,6 +215,8 @@ export function checkPhoneHome(ctx: ScanContext): CheckResult {
         seenHosts,
         findings,
         true,
+        sourceLines,
+        ext,
       );
     }
 
@@ -260,6 +270,8 @@ function collectUrls(
   seenHosts: Set<string>,
   findings: Finding[],
   ipc = false,
+  sourceLines: string[] = [],
+  ext = "",
 ): void {
   re.lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -268,6 +280,7 @@ function collectUrls(
     const startLine = lineNumbers[match.index] ?? 1;
     const endLine = lineNumbers[match.index + Math.max(raw.length - 1, 0)] ?? startLine;
     if (startLine === endLine && shouldSkipLine(startLine)) continue;
+    if (!ipc && isPowerShellMatchRegex(raw, sourceLines[startLine - 1] ?? "", ext)) continue;
     if (ipc) {
       const key = `ipc:${raw}`;
       if (seenHosts.has(key)) continue;
@@ -296,6 +309,21 @@ function collectUrls(
       score: declared ? 35 : 40,
     });
   }
+}
+
+function isPowerShellMatchRegex(raw: string, sourceLine: string, ext: string): boolean {
+  if (ext !== ".ps1" || !hasEscapedHostnameDot(raw)) return false;
+  const start = sourceLine.indexOf(raw);
+  if (start < 0) return false;
+  const prefix = sourceLine.slice(0, start);
+  return /-\s*(?:not)?match\s+['\"]?\^?\s*$/i.test(prefix);
+}
+
+function hasEscapedHostnameDot(raw: string): boolean {
+  const authority = raw
+    .replace(/^(?:https?|wss?):(?:\/\/)?/i, "")
+    .split(/[/?#]/, 1)[0] ?? "";
+  return /\\\./.test(authority);
 }
 
 function isScannableFile(file: TextFile): boolean {
