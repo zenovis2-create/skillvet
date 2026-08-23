@@ -12,6 +12,7 @@ import {
   type CodexAuditObservation,
   type CodexAuditOptions,
   type CodexAuditResult,
+  type CodexInstructionConfiguration,
   type CodexMcpServer,
   type CodexPlugin,
   type CodexSkillInventoryItem,
@@ -70,6 +71,13 @@ export async function auditCodex(
   await collectOverridePathFindings(root, overrides, findings, observations, reasons);
   const mcpServers = collectMcpServers(tables, observations, findings);
   const plugins = collectPlugins(tables, observations, findings);
+  const instructions = await collectInstructionConfiguration(
+    root,
+    tables,
+    observations,
+    findings,
+    reasons,
+  );
 
   const discovered = skills.length;
   const enabled = skills.filter((skill) => skill.enabled).length;
@@ -109,6 +117,7 @@ export async function auditCodex(
     skills,
     mcpServers,
     plugins,
+    instructions,
     observations,
     findings,
   };
@@ -355,6 +364,90 @@ async function collectOverridePathFindings(
       addReason(reasons, `DIRECTORY_SKILL_OVERRIDE: config.toml:${override.line}`);
     }
   }
+}
+
+async function collectInstructionConfiguration(
+  root: string,
+  tables: TomlTable[],
+  observations: CodexAuditObservation[],
+  findings: CodexAuditFinding[],
+  reasons: string[],
+): Promise<CodexInstructionConfiguration> {
+  const [agents, override] = await Promise.all([
+    inspectInstructionFile(root, "AGENTS.md", reasons),
+    inspectInstructionFile(root, "AGENTS.override.md", reasons),
+  ]);
+  const global: CodexInstructionConfiguration["global"] = {
+    ...(agents ? { agents } : {}),
+    ...(override ? { override } : {}),
+    ...(override && override.bytes > 0
+      ? { effective: "AGENTS.override.md" as const }
+      : agents && agents.bytes > 0
+        ? { effective: "AGENTS.md" as const }
+        : {}),
+  };
+  for (const item of [agents, override]) {
+    if (!item) continue;
+    addObservation(
+      observations,
+      "CODEX_GLOBAL_INSTRUCTION_BYTES",
+      "Codex global instruction file byte size",
+      item.bytes,
+      evidence(item.path, String(item.bytes)),
+    );
+  }
+  if (agents && agents.bytes > 0 && override && override.bytes > 0) {
+    findings.push({
+      id: "CODEX_GLOBAL_OVERRIDE_REPLACES_AGENTS",
+      severity: "warning",
+      message: "AGENTS.override.md replaces AGENTS.md in the Codex home; review the override for every required rule",
+      evidence: evidence("AGENTS.override.md", agents.path),
+    });
+  }
+
+  const rootTable = tables.find((table) => table.path.length === 0);
+  const configuredLimit = rootTable?.values.get("project_doc_max_bytes");
+  const projectDocMaxBytes = typeof configuredLimit?.value === "number"
+    && Number.isInteger(configuredLimit.value)
+    && configuredLimit.value > 0
+    ? configuredLimit.value
+    : undefined;
+  if (projectDocMaxBytes !== undefined) {
+    addObservation(
+      observations,
+      "CODEX_PROJECT_DOC_MAX_BYTES",
+      "configured Codex project instruction byte limit",
+      projectDocMaxBytes,
+      evidence(rootTable?.source ?? "config.toml", String(projectDocMaxBytes), configuredLimit?.line),
+    );
+  } else if (configuredLimit) {
+    findings.push({
+      id: "INVALID_PROJECT_DOC_MAX_BYTES",
+      severity: "warning",
+      message: "project_doc_max_bytes is not a positive integer",
+      evidence: evidence(rootTable?.source ?? "config.toml", configuredLimit.raw, configuredLimit.line),
+    });
+  }
+  return { global, ...(projectDocMaxBytes === undefined ? {} : { projectDocMaxBytes }) };
+}
+
+async function inspectInstructionFile(
+  root: string,
+  name: "AGENTS.md" | "AGENTS.override.md",
+  reasons: string[],
+): Promise<{ path: string; bytes: number } | undefined> {
+  const candidate = path.join(root, name);
+  let info;
+  try {
+    info = await stat(candidate);
+  } catch {
+    return undefined;
+  }
+  if (!info.isFile()) {
+    addReason(reasons, `NON_FILE_GLOBAL_INSTRUCTION: ${name}`);
+    return undefined;
+  }
+  return { path: name, bytes: info.size };
 }
 
 function collectMcpServers(

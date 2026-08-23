@@ -28,6 +28,8 @@ export type {
   CodexAuditOptions,
   CodexAuditResult,
   CodexAuditSeverity,
+  CodexInstructionConfiguration,
+  CodexInstructionFile,
   CodexMcpServer,
   CodexPlugin,
   CodexSkillInventoryItem,
@@ -39,6 +41,7 @@ export type {
   AuditObservation,
   AuditEvaluation,
   AuditProvider,
+  AuditRuntime,
   LoadSurface,
   SuppressedEvaluation,
 } from "./audit-types.js";

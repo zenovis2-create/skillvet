@@ -38,7 +38,7 @@ skillvet ${version} -- static audit for a Codex home directory
 Usage:
   skillvet audit codex <CODEX_HOME> [options]
 
-This mode reads only config.toml and direct skills. It does not execute Codex,
+This mode reads config.toml, global AGENTS instruction files, and direct skills. It does not execute Codex,
 start MCP servers, download packages, or treat a skill collection as one skill.
 
 Options:

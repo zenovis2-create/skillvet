@@ -159,6 +159,7 @@ async function runAudit(argv: string[]): Promise<number> {
       failOnUnreviewed: args.failOnUnreviewed,
       requireReviewed: args.requireReviewed,
       assumeContext: args.assumeContext,
+      codexProjectDocMaxBytes: args.codexProjectDocMaxBytes,
     };
     const result = await audit(args.target, options);
     const report = formatAuditReport(result, {

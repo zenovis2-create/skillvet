@@ -8,6 +8,7 @@ import path from "node:path";
 import { parseFrontmatter } from "./manifest.js";
 import {
   CLAUDE_CODE_RULESET,
+  WORKSPACE_INSTRUCTION_RULESET,
   appliesAtVersion,
   compareVersions,
   parseVersion,
@@ -21,6 +22,7 @@ import type {
   AuditOptions,
   AuditProvider,
   AuditResult,
+  AuditRuntime,
   AuditSurface,
   LoadSurface,
   SuppressedEvaluation,
@@ -33,6 +35,7 @@ const execFile = promisify(execFileCallback);
 const MAX_AUDIT_READ_BYTES = 2 * 1024 * 1024;
 const MAX_IMPORT_HOPS = 4;
 const DEFAULT_ASSUMED_CONTEXT = 200_000;
+const DEFAULT_CODEX_PROJECT_DOC_MAX_BYTES = 32 * 1024;
 const EXCLUDED_DIRS = new Set([".git", "node_modules", "coverage", ".venv", "venv", "__pycache__"]);
 
 interface WorkspaceFile {
@@ -61,6 +64,8 @@ interface HookBlock {
 interface Candidate {
   message: string;
   evidence: AuditEvidence;
+  runtime?: AuditRuntime;
+  surface?: AuditSurface;
 }
 
 interface AuditBuild {
@@ -68,6 +73,7 @@ interface AuditBuild {
   provider: AuditProvider;
   coverage: AuditCoverage;
   assumedContext: number;
+  codexProjectDocMaxBytes: number;
   surfaces: LoadSurface[];
   observations: AuditObservation[];
   candidates: Map<string, Candidate[]>;
@@ -83,6 +89,7 @@ export async function audit(target: string, options: AuditOptions = {}): Promise
     provider,
     coverage: { status: "FULL", reasons: coverageReasons },
     assumedContext: options.assumeContext ?? DEFAULT_ASSUMED_CONTEXT,
+    codexProjectDocMaxBytes: options.codexProjectDocMaxBytes ?? DEFAULT_CODEX_PROJECT_DOC_MAX_BYTES,
     surfaces: [],
     observations: [],
     candidates: new Map(),
@@ -99,6 +106,7 @@ export async function audit(target: string, options: AuditOptions = {}): Promise
     provider: build.provider,
     coverage: build.coverage,
     assumedContext: build.assumedContext,
+    assumedCodexProjectDocMaxBytes: build.codexProjectDocMaxBytes,
     surfaces: build.surfaces,
     observations: build.observations,
     findings,
@@ -290,14 +298,40 @@ async function collectLoadSurfaces(
   files: WorkspaceFile[],
   reasons: string[],
 ): Promise<void> {
-  const rootClaude = files.filter((file) =>
-    file.relPath === "CLAUDE.md" || file.relPath === "CLAUDE.local.md",
-  );
+  const rootClaude = selectClaudeStartupMemory(build, root, files, reasons);
   const allClaude = files.filter((file) => path.basename(file.relPath).toLowerCase() === "claude.md");
   for (const file of allClaude) {
-    addObservation(build, "CLAUDE_MD_BYTES", "file", "CLAUDE.md byte size", file.size, evidence(root, file, undefined, 1, String(file.size)));
+    addObservation(
+      build,
+      "CLAUDE_MD_BYTES",
+      "file",
+      "CLAUDE.md byte size",
+      file.size,
+      evidence(root, file, undefined, 1, String(file.size)),
+      "claude-code",
+    );
+    const content = await readAuditText(root, file, reasons);
+    if (content === undefined) continue;
+    const lines = lineCount(content);
+    addObservation(
+      build,
+      "CLAUDE_MD_LINES",
+      "file",
+      "CLAUDE.md line count",
+      lines,
+      evidence(root, file, undefined, 1, String(lines)),
+      "claude-code",
+    );
+    if (lines > 200) {
+      addCandidate(build, "CLAUDE_MEMORY_LINE_GUIDANCE", {
+        message: `CLAUDE.md has ${lines} lines; Claude Code guidance recommends keeping each memory file under 200 lines`,
+        evidence: evidence(root, file, undefined, 1, String(lines)),
+        runtime: "claude-code",
+        surface: file.relPath.includes("/") ? "conditional" : "main",
+      });
+    }
   }
-  await collectClaudeImports(build, root, rootClaude, reasons);
+  const importedBytes = await collectClaudeImports(build, root, rootClaude, reasons);
 
   let mainBytes = rootClaude.reduce((total, file) => total + file.size, 0);
   const conditionalSurfaces: LoadSurface[] = [];
@@ -308,7 +342,15 @@ async function collectLoadSurfaces(
     const paths = frontmatter.paths;
     if (paths === undefined) {
       mainBytes += file.size;
-      addObservation(build, "UNSCOPED_RULE_BYTES", "file", "unscoped Claude rule byte size", file.size, evidence(root, file, undefined, 1, String(file.size)));
+      addObservation(
+        build,
+        "UNSCOPED_RULE_BYTES",
+        "file",
+        "unscoped Claude rule byte size",
+        file.size,
+        evidence(root, file, undefined, 1, String(file.size)),
+        "claude-code",
+      );
     } else {
       const pattern = Array.isArray(paths) ? paths.map(String).join(", ") : String(paths);
       conditionalSurfaces.push({
@@ -316,6 +358,7 @@ async function collectLoadSurfaces(
         surface: "conditional",
         rawBytes: file.size,
         measurement: content === undefined ? "partial" : "observed",
+        runtime: "claude-code",
       });
     }
   }
@@ -323,7 +366,9 @@ async function collectLoadSurfaces(
     id: "main:start",
     surface: "main",
     rawBytes: mainBytes,
-    measurement: "observed",
+    injectedBytes: mainBytes + importedBytes,
+    measurement: importedBytes > 0 ? "candidate" : "observed",
+    runtime: "claude-code",
   });
   build.surfaces.push(...conditionalSurfaces);
 
@@ -348,6 +393,7 @@ async function collectLoadSurfaces(
       surface: "skill",
       rawBytes: file.size,
       measurement: "candidate",
+      runtime: "claude-code",
     });
   }
   const listingBudget = Math.floor(build.assumedContext * 0.01);
@@ -371,8 +417,11 @@ async function collectLoadSurfaces(
       surface: "subagent",
       rawBytes: file.size,
       measurement: "candidate",
+      runtime: "claude-code",
     });
   }
+
+  collectCodexInstructionSurfaces(build, root, files);
 }
 
 async function collectClaudeImports(
@@ -380,9 +429,10 @@ async function collectClaudeImports(
   root: string,
   roots: WorkspaceFile[],
   reasons: string[],
-): Promise<void> {
+): Promise<number> {
   const visited = new Set<string>();
   const surfaced = new Set<string>();
+  let importedBytes = 0;
 
   async function visit(file: WorkspaceFile, depth: number): Promise<void> {
     if (visited.has(file.absPath)) return;
@@ -457,13 +507,125 @@ async function collectClaudeImports(
           surface: "main",
           rawBytes: imported.size,
           measurement: "observed",
+          runtime: "claude-code",
         });
+        importedBytes += imported.size;
+      }
+      if (isCodexInstructionFile(imported)) {
+        addObservation(
+          build,
+          "CLAUDE_IMPORTS_AGENTS",
+          "import",
+          "Claude import shares an AGENTS instruction source and adds its bytes to startup context",
+          imported.relPath,
+          evidence(root, file, undefined, item.line, item.reference),
+          "claude-code",
+        );
       }
       await visit(imported, depth + 1);
     }
   }
 
   for (const file of roots) await visit(file, 0);
+  return importedBytes;
+}
+
+function collectCodexInstructionSurfaces(
+  build: AuditBuild,
+  root: string,
+  files: WorkspaceFile[],
+): void {
+  const byDirectory = new Map<string, { agents?: WorkspaceFile; override?: WorkspaceFile }>();
+  for (const file of files.filter(isCodexInstructionFile)) {
+    addObservation(
+      build,
+      "CODEX_INSTRUCTION_BYTES",
+      "instruction",
+      "Codex instruction file byte size",
+      file.size,
+      evidence(root, file, undefined, 1, String(file.size)),
+      "codex",
+    );
+    if (file.size === 0) {
+      addObservation(
+        build,
+        "CODEX_EMPTY_INSTRUCTION_SKIPPED",
+        "instruction",
+        "empty Codex instruction files are skipped during discovery",
+        file.relPath,
+        evidence(root, file, undefined, 1, "empty"),
+        "codex",
+      );
+      continue;
+    }
+    const directory = path.posix.dirname(file.relPath);
+    const entry = byDirectory.get(directory) ?? {};
+    if (path.posix.basename(file.relPath).toLowerCase() === "agents.override.md") entry.override = file;
+    else entry.agents = file;
+    byDirectory.set(directory, entry);
+  }
+
+  const effectiveByDirectory = new Map<string, WorkspaceFile>();
+  for (const [directory, entry] of byDirectory) {
+    const effective = entry.override ?? entry.agents;
+    if (!effective) continue;
+    effectiveByDirectory.set(directory, effective);
+    if (entry.override && entry.agents) {
+      addCandidate(build, "CODEX_OVERRIDE_REPLACES_AGENTS", {
+        message: `AGENTS.override.md replaces AGENTS.md in ${displayDirectory(directory)}; review the override for every required rule`,
+        evidence: evidence(root, entry.override, undefined, 1, entry.agents.relPath),
+        runtime: "codex",
+        surface: directory === "." ? "main" : "conditional",
+      });
+    }
+  }
+
+  for (const [directory, effective] of [...effectiveByDirectory.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    const injectedBytes = codexInstructionChainBytes(effectiveByDirectory, directory);
+    const surface = directory === "." ? "main" : "conditional";
+    build.surfaces.push({
+      id: `codex:project:${displayDirectory(directory)}`,
+      surface,
+      rawBytes: effective.size,
+      injectedBytes,
+      measurement: "observed",
+      runtime: "codex",
+    });
+    addObservation(
+      build,
+      "CODEX_PROJECT_INSTRUCTION_BYTES",
+      "instruction",
+      "within-target effective Codex instruction chain byte size",
+      injectedBytes,
+      evidence(root, effective, undefined, 1, `${directory}:${injectedBytes}`),
+      "codex",
+    );
+    if (injectedBytes >= build.codexProjectDocMaxBytes) {
+      addCandidate(build, "CODEX_PROJECT_INSTRUCTION_CAP_RISK", {
+        message: `within-target Codex instruction chain is ${injectedBytes} bytes, reaching or exceeding the assumed ${build.codexProjectDocMaxBytes}-byte project-document limit`,
+        evidence: evidence(root, effective, undefined, 1, `${directory}:${injectedBytes}:${build.codexProjectDocMaxBytes}`),
+        runtime: "codex",
+        surface,
+      });
+    }
+  }
+}
+
+function codexInstructionChainBytes(
+  effectiveByDirectory: ReadonlyMap<string, WorkspaceFile>,
+  directory: string,
+): number {
+  let current = directory;
+  let total = 0;
+  while (true) {
+    total += effectiveByDirectory.get(current)?.size ?? 0;
+    if (current === ".") return total;
+    current = path.posix.dirname(current);
+  }
+}
+
+function displayDirectory(directory: string): string {
+  return directory === "." ? "." : directory;
 }
 
 async function collectHooks(
@@ -558,6 +720,33 @@ function evaluateCandidates(build: AuditBuild): {
 } {
   const findings: AuditFinding[] = [];
   const evaluations: AuditEvaluation[] = [];
+  for (const rule of WORKSPACE_INSTRUCTION_RULESET.checks) {
+    const candidates = build.candidates.get(rule.id) ?? [];
+    const eligible = rule.confidence === "deterministic";
+    evaluations.push({
+      id: rule.id,
+      dimension: rule.dimension,
+      confidence: rule.confidence,
+      since: rule.since,
+      until: rule.until,
+      evaluated: true,
+      eligible,
+      outcome: candidates.length > 0 ? "finding" : "clean",
+    });
+    for (const candidate of candidates) {
+      findings.push({
+        id: rule.id,
+        dimension: rule.dimension,
+        confidence: rule.confidence,
+        surface: candidate.surface ?? surfaceFor(rule.dimension),
+        severity: rule.severity,
+        ci: { eligible, defaultFail: rule.defaultFail },
+        message: candidate.message,
+        evidence: candidate.evidence,
+        ...(candidate.runtime ? { runtime: candidate.runtime } : {}),
+      });
+    }
+  }
   for (const rule of CLAUDE_CODE_RULESET.checks) {
     const candidates = build.candidates.get(rule.id) ?? [];
     if (!build.provider.version) {
@@ -603,11 +792,12 @@ function evaluateCandidates(build: AuditBuild): {
         id: rule.id,
         dimension: rule.dimension,
         confidence: rule.confidence,
-        surface: surfaceFor(rule.dimension),
+        surface: candidate.surface ?? surfaceFor(rule.dimension),
         severity: rule.severity,
         ci: { eligible, defaultFail: rule.defaultFail },
         message: candidate.message,
         evidence: candidate.evidence,
+        ...(candidate.runtime ? { runtime: candidate.runtime } : {}),
       });
     }
   }
@@ -621,7 +811,9 @@ function suppressedForReviewExpiry(
 ): SuppressedEvaluation[] {
   if (result.provider.review !== "unreviewed" || options.failOnUnreviewed) return [];
   const selectors = options.failOn ?? [];
+  const versionGatedIds = new Set(CLAUDE_CODE_RULESET.checks.map((rule) => rule.id));
   return result.findings
+    .filter((finding) => versionGatedIds.has(finding.id))
     .filter((finding) => finding.confidence === "deterministic")
     .filter((finding) =>
       finding.ci.defaultFail || (selectors.length > 0 && matchesSelector(finding.id, finding.dimension, selectors)),
@@ -785,6 +977,39 @@ function firstParagraph(content: string): string {
   return body.split(/\r?\n\s*\r?\n/, 1)[0]?.trim() ?? "";
 }
 
+function selectClaudeStartupMemory(
+  build: AuditBuild,
+  root: string,
+  files: WorkspaceFile[],
+  reasons: string[],
+): WorkspaceFile[] {
+  const projectMemory = files.find((file) => file.relPath.toLowerCase() === "claude.md");
+  const alternateProjectMemory = files.find((file) => file.relPath.toLowerCase() === ".claude/claude.md");
+  const localMemory = files.find((file) => file.relPath.toLowerCase() === "claude.local.md");
+  if (projectMemory && alternateProjectMemory) {
+    addReason(reasons, "AMBIGUOUS_CLAUDE_PROJECT_MEMORY: CLAUDE.md and .claude/CLAUDE.md");
+    addCandidate(build, "CLAUDE_PROJECT_MEMORY_LOCATION_CONFLICT", {
+      message: "both CLAUDE.md and .claude/CLAUDE.md exist; choose one documented project-memory location before measuring startup bytes",
+      evidence: evidence(root, alternateProjectMemory, undefined, 1, projectMemory.relPath),
+      runtime: "claude-code",
+      surface: "main",
+    });
+  }
+  const sharedMemory = projectMemory ?? alternateProjectMemory;
+  return [sharedMemory, localMemory].filter((file): file is WorkspaceFile => Boolean(file));
+}
+
+function isCodexInstructionFile(file: WorkspaceFile): boolean {
+  const name = path.posix.basename(file.relPath).toLowerCase();
+  return name === "agents.md" || name === "agents.override.md";
+}
+
+function lineCount(content: string): number {
+  if (content.length === 0) return 0;
+  const endsWithLineBreak = /(?:\r\n|\r|\n)$/.test(content);
+  return content.split(/\r\n|\r|\n/).length - (endsWithLineBreak ? 1 : 0);
+}
+
 function extractClaudeImports(content: string): Array<{ reference: string; line: number }> {
   const imports: Array<{ reference: string; line: number }> = [];
   let inFence = false;
@@ -816,8 +1041,9 @@ function addObservation(
   message: string,
   value: string | number | boolean,
   itemEvidence: AuditEvidence,
+  runtime?: AuditRuntime,
 ): void {
-  build.observations.push({ id, kind, message, value, evidence: itemEvidence });
+  build.observations.push({ id, kind, message, value, evidence: itemEvidence, ...(runtime ? { runtime } : {}) });
 }
 
 function evidence(
