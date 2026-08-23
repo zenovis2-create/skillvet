@@ -1,0 +1,285 @@
+{
+  "schemaVersion": 1,
+  "toolVersion": "0.2.0",
+  "rulesetIds": [
+    "claude-code/docs-2026-08-22",
+    "workspace-instructions/docs-2026-08-23"
+  ],
+  "findingIdPolicy": {
+    "reuse": "forbidden",
+    "semanticChange": "forbidden",
+    "retirement": "deprecated"
+  },
+  "findingIdStatuses": [
+    {
+      "id": "CLAUDE_MEMORY_LINE_GUIDANCE",
+      "status": "active"
+    },
+    {
+      "id": "CLAUDE_PROJECT_MEMORY_LOCATION_CONFLICT",
+      "status": "active"
+    },
+    {
+      "id": "CODEX_OVERRIDE_REPLACES_AGENTS",
+      "status": "active"
+    },
+    {
+      "id": "CODEX_PROJECT_INSTRUCTION_CAP_RISK",
+      "status": "active"
+    },
+    {
+      "id": "HEADER_ENV_INTERPOLATION",
+      "status": "active"
+    },
+    {
+      "id": "MATCH_ALL_HOOK",
+      "status": "active"
+    },
+    {
+      "id": "POTENTIAL_CREDENTIAL_EGRESS",
+      "status": "active"
+    },
+    {
+      "id": "REMOTE_HTTP_HOOK",
+      "status": "active"
+    },
+    {
+      "id": "SKILL_LISTING_OVERFLOW",
+      "status": "active"
+    }
+  ],
+  "target": "<FIXTURE_ROOT>",
+  "provider": {
+    "id": "claude-code",
+    "version": "2.1.239",
+    "source": "declared",
+    "behaviorRuleset": "claude-code/docs-2026-08-22",
+    "review": "reviewed",
+    "reviewedThrough": "2.1.239"
+  },
+  "coverage": {
+    "status": "FULL",
+    "reasons": []
+  },
+  "assumedContext": 200000,
+  "assumedCodexProjectDocMaxBytes": 32768,
+  "status": "PASS",
+  "exitCode": 0,
+  "surfaces": [
+    {
+      "id": "main:import:AGENTS.md",
+      "surface": "main",
+      "rawBytes": 21,
+      "measurement": "observed",
+      "runtime": "claude-code"
+    },
+    {
+      "id": "main:start",
+      "surface": "main",
+      "rawBytes": 11,
+      "injectedBytes": 32,
+      "measurement": "candidate",
+      "runtime": "claude-code",
+      "listingLower": 0,
+      "listingUpper": 0,
+      "overflowAtAssumedContext": false
+    },
+    {
+      "id": "codex:project:.",
+      "surface": "main",
+      "rawBytes": 22,
+      "injectedBytes": 22,
+      "measurement": "observed",
+      "runtime": "codex"
+    }
+  ],
+  "observations": [
+    {
+      "id": "CLAUDE_MD_BYTES",
+      "kind": "file",
+      "message": "CLAUDE.md byte size",
+      "value": 11,
+      "evidence": {
+        "path": "CLAUDE.md",
+        "line": 1,
+        "valueHash": "4fc82b26aecb47d2868c4efbe3581732a3e7cbcc6c2efb32062c08170a05eeb8"
+      },
+      "runtime": "claude-code"
+    },
+    {
+      "id": "CLAUDE_MD_LINES",
+      "kind": "file",
+      "message": "CLAUDE.md line count",
+      "value": 1,
+      "evidence": {
+        "path": "CLAUDE.md",
+        "line": 1,
+        "valueHash": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"
+      },
+      "runtime": "claude-code"
+    },
+    {
+      "id": "CLAUDE_IMPORT",
+      "kind": "import",
+      "message": "Claude import resolves inside the workspace",
+      "value": "AGENTS.md",
+      "evidence": {
+        "path": "CLAUDE.md",
+        "line": 1,
+        "valueHash": "a54ff182c7e8acf56acfd6e4b9c3ff41e2c41a31c9b211b2deb9df75d9a478f9"
+      }
+    },
+    {
+      "id": "CLAUDE_IMPORTS_AGENTS",
+      "kind": "import",
+      "message": "Claude import shares an AGENTS instruction source and adds its bytes to startup context",
+      "value": "AGENTS.md",
+      "evidence": {
+        "path": "CLAUDE.md",
+        "line": 1,
+        "valueHash": "a54ff182c7e8acf56acfd6e4b9c3ff41e2c41a31c9b211b2deb9df75d9a478f9"
+      },
+      "runtime": "claude-code"
+    },
+    {
+      "id": "CODEX_INSTRUCTION_BYTES",
+      "kind": "instruction",
+      "message": "Codex instruction file byte size",
+      "value": 21,
+      "evidence": {
+        "path": "AGENTS.md",
+        "line": 1,
+        "valueHash": "6f4b6612125fb3a0daecd2799dfd6c9c299424fd920f9b308110a2c1fbd8f443"
+      },
+      "runtime": "codex"
+    },
+    {
+      "id": "CODEX_INSTRUCTION_BYTES",
+      "kind": "instruction",
+      "message": "Codex instruction file byte size",
+      "value": 22,
+      "evidence": {
+        "path": "AGENTS.override.md",
+        "line": 1,
+        "valueHash": "785f3ec7eb32f30b90cd0fcf3657d388b5ff4297f2f9716ff66e9b69c05ddd09"
+      },
+      "runtime": "codex"
+    },
+    {
+      "id": "CODEX_PROJECT_INSTRUCTION_BYTES",
+      "kind": "instruction",
+      "message": "within-target effective Codex instruction chain byte size",
+      "value": 22,
+      "evidence": {
+        "path": "AGENTS.override.md",
+        "line": 1,
+        "valueHash": "770071a432223ab54bbbf2df79db19bc5c4f10fdae76fe338e289f87dfc0d75f"
+      },
+      "runtime": "codex"
+    }
+  ],
+  "findings": [
+    {
+      "id": "CODEX_OVERRIDE_REPLACES_AGENTS",
+      "dimension": "conflict",
+      "confidence": "deterministic",
+      "surface": "main",
+      "severity": "warning",
+      "ci": {
+        "eligible": true,
+        "defaultFail": false
+      },
+      "message": "AGENTS.override.md replaces AGENTS.md in .; review the override for every required rule",
+      "evidence": {
+        "path": "AGENTS.override.md",
+        "line": 1,
+        "valueHash": "a54ff182c7e8acf56acfd6e4b9c3ff41e2c41a31c9b211b2deb9df75d9a478f9"
+      },
+      "runtime": "codex"
+    }
+  ],
+  "evaluations": [
+    {
+      "id": "CODEX_OVERRIDE_REPLACES_AGENTS",
+      "dimension": "conflict",
+      "confidence": "deterministic",
+      "since": "docs-2026-08-23",
+      "evaluated": true,
+      "eligible": true,
+      "outcome": "finding"
+    },
+    {
+      "id": "CODEX_PROJECT_INSTRUCTION_CAP_RISK",
+      "dimension": "context",
+      "confidence": "deterministic",
+      "since": "docs-2026-08-23",
+      "evaluated": true,
+      "eligible": true,
+      "outcome": "clean"
+    },
+    {
+      "id": "CLAUDE_MEMORY_LINE_GUIDANCE",
+      "dimension": "context",
+      "confidence": "heuristic",
+      "since": "docs-2026-08-23",
+      "evaluated": true,
+      "eligible": false,
+      "outcome": "clean"
+    },
+    {
+      "id": "CLAUDE_PROJECT_MEMORY_LOCATION_CONFLICT",
+      "dimension": "conflict",
+      "confidence": "deterministic",
+      "since": "docs-2026-08-23",
+      "evaluated": true,
+      "eligible": true,
+      "outcome": "clean"
+    },
+    {
+      "id": "MATCH_ALL_HOOK",
+      "dimension": "hook",
+      "confidence": "deterministic",
+      "since": "2.1.0",
+      "evaluated": true,
+      "eligible": true,
+      "outcome": "clean"
+    },
+    {
+      "id": "REMOTE_HTTP_HOOK",
+      "dimension": "security",
+      "confidence": "deterministic",
+      "since": "2.1.63",
+      "evaluated": true,
+      "eligible": true,
+      "outcome": "clean"
+    },
+    {
+      "id": "HEADER_ENV_INTERPOLATION",
+      "dimension": "security",
+      "confidence": "deterministic",
+      "since": "2.1.63",
+      "evaluated": true,
+      "eligible": true,
+      "outcome": "clean"
+    },
+    {
+      "id": "POTENTIAL_CREDENTIAL_EGRESS",
+      "dimension": "security",
+      "confidence": "heuristic",
+      "since": "2.1.63",
+      "evaluated": true,
+      "eligible": false,
+      "outcome": "clean"
+    },
+    {
+      "id": "SKILL_LISTING_OVERFLOW",
+      "dimension": "context",
+      "confidence": "deterministic",
+      "since": "2.1.196",
+      "evaluated": true,
+      "eligible": true,
+      "outcome": "clean"
+    }
+  ],
+  "suppressedEvaluations": []
+}

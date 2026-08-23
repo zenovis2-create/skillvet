@@ -1,4 +1,10 @@
 import { auditExitCode } from "./audit.js";
+import {
+  AUDIT_FINDING_ID_POLICY,
+  AUDIT_JSON_SCHEMA_VERSION,
+  auditFindingIdStatuses,
+  auditRulesetIds,
+} from "./audit-contract.js";
 import type { AuditOptions, AuditResult, LoadSurface } from "./audit-types.js";
 import { VERSION } from "./types.js";
 
@@ -22,7 +28,11 @@ export function formatAuditReport(result: AuditResult, options: AuditReportOptio
 
 export function toAuditJson(result: AuditResult, options: AuditOptions = {}) {
   return {
-    version: result.version,
+    schemaVersion: AUDIT_JSON_SCHEMA_VERSION,
+    toolVersion: result.version,
+    rulesetIds: auditRulesetIds(result.provider),
+    findingIdPolicy: { ...AUDIT_FINDING_ID_POLICY },
+    findingIdStatuses: auditFindingIdStatuses(),
     target: result.target,
     provider: result.provider,
     coverage: result.coverage,

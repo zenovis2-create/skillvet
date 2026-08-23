@@ -1,0 +1,2 @@
+# root memory
+@AGENTS.md

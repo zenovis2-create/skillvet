@@ -1,0 +1,12 @@
+{
+  "expected": "NOT_MODELED",
+  "ruleId": "SKILL_LISTING_OVERFLOW",
+  "provider": "claude-code@2.1.0",
+  "notImplemented": [
+    {
+      "axis": "prompt-injection",
+      "fixturePath": ".claude/skills/PI-OVERRIDE/SKILL.md",
+      "expected": "NOT_IMPLEMENTED"
+    }
+  ]
+}

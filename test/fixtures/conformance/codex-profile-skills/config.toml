@@ -1,0 +1,7 @@
+[[skills.config]]
+path = "skills/review/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "skills/disabled/SKILL.md"
+enabled = false

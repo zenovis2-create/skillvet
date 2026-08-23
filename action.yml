@@ -1,0 +1,86 @@
+name: Skillvet audit
+description: Run the versioned Skillvet workspace-audit JSON contract in GitHub Actions.
+
+inputs:
+  target:
+    description: Workspace path to audit.
+    required: false
+    default: .
+  provider:
+    description: Declared provider version, for example claude-code@2.1.239.
+    required: false
+    default: ""
+  fail-on:
+    description: Comma-separated finding IDs or dimensions to fail on.
+    required: false
+    default: security
+  require-reviewed:
+    description: Require a reviewed provider-version contract.
+    required: false
+    default: "true"
+  fail-on-unreviewed:
+    description: Allow selected unreviewed deterministic findings to fail.
+    required: false
+    default: "false"
+  assume-context:
+    description: Optional assumed Claude context-token budget.
+    required: false
+    default: ""
+  codex-project-doc-max-bytes:
+    description: Optional assumed Codex project-document byte limit.
+    required: false
+    default: ""
+
+outputs:
+  report-path:
+    description: Absolute path of the generated JSON report on the runner.
+  schema-version:
+    description: Skillvet audit JSON schema version.
+  tool-version:
+    description: Skillvet version that generated the report.
+  status:
+    description: Audit status from the JSON contract.
+  exit-code:
+    description: Audit exit code from the JSON contract.
+  finding-count:
+    description: Number of emitted findings.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: 22
+    - id: audit
+      shell: bash
+      env:
+        SKILLVET_TARGET: ${{ inputs.target }}
+        SKILLVET_PROVIDER: ${{ inputs.provider }}
+        SKILLVET_FAIL_ON: ${{ inputs.fail-on }}
+        SKILLVET_REQUIRE_REVIEWED: ${{ inputs.require-reviewed }}
+        SKILLVET_FAIL_ON_UNREVIEWED: ${{ inputs.fail-on-unreviewed }}
+        SKILLVET_ASSUME_CONTEXT: ${{ inputs.assume-context }}
+        SKILLVET_CODEX_PROJECT_DOC_MAX_BYTES: ${{ inputs.codex-project-doc-max-bytes }}
+      run: |
+        set -euo pipefail
+        work_dir="$GITHUB_ACTION_PATH"
+        report_path="$RUNNER_TEMP/skillvet-audit.json"
+        target_path="$(node -e 'const path = require("node:path"); process.stdout.write(path.resolve(process.env.GITHUB_WORKSPACE, process.env.SKILLVET_TARGET || "."));')"
+        args=(audit "$target_path" --json)
+        if [[ -n "${SKILLVET_PROVIDER:-}" ]]; then args+=(--provider "$SKILLVET_PROVIDER"); fi
+        if [[ -n "${SKILLVET_FAIL_ON:-}" ]]; then args+=(--fail-on "$SKILLVET_FAIL_ON"); fi
+        if [[ "${SKILLVET_REQUIRE_REVIEWED:-}" == "true" ]]; then args+=(--require-reviewed); fi
+        if [[ "${SKILLVET_FAIL_ON_UNREVIEWED:-}" == "true" ]]; then args+=(--fail-on-unreviewed); fi
+        if [[ -n "${SKILLVET_ASSUME_CONTEXT:-}" ]]; then args+=(--assume-context "$SKILLVET_ASSUME_CONTEXT"); fi
+        if [[ -n "${SKILLVET_CODEX_PROJECT_DOC_MAX_BYTES:-}" ]]; then
+          args+=(--assume-codex-project-doc-max-bytes "$SKILLVET_CODEX_PROJECT_DOC_MAX_BYTES")
+        fi
+
+        cd "$work_dir"
+        npm ci
+        set +e
+        npx --no-install tsx src/cli.ts "${args[@]}" > "$report_path"
+        audit_status=$?
+        set -e
+        node "$work_dir/scripts/action-summary.mjs" "$report_path"
+        exit "$audit_status"
