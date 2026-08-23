@@ -1,19 +1,52 @@
 # skillvet
 
-Supply-chain scanner for AI agent skills and MCP servers, plus static audits for Claude Code and Codex instruction/configuration surfaces.
+Static evidence for what an agent workspace will load, expose, and cost — plus
+supply-chain scanning for skills and MCP servers.
 
 [![stars](https://img.shields.io/github/stars/zenovis2-create/skillvet?style=flat)](https://github.com/zenovis2-create/skillvet)
 [![CI](https://img.shields.io/github/actions/workflow/status/zenovis2-create/skillvet/ci.yml)](https://github.com/zenovis2-create/skillvet/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
-```bash
-npx skillvet ./my-skill
-```
+`skillvet audit` verifies the effective agent configuration, not just the files
+that exist. It applies bundled instruction-loader rules, declared provider
+versions, and context measurements to local workspace evidence. `skillvet scan`
+remains the separate supply-chain scanner for a skill or MCP target.
 
 Node 22+. Uses the zero-transitive-dependency `yaml` parser for standards-compliant
 frontmatter validation. Does not execute the skill.
 
-## Install
+## Audit effective configuration
+
+For an interactive local audit, opt in to provider-version detection:
+
+```bash
+npx skillvet audit . --detect-provider-version
+```
+
+For CI, declare the installed provider version and require reviewed coverage:
+
+```bash
+npx skillvet audit . \
+  --provider claude-code@<version> \
+  --fail-on=security \
+  --require-reviewed \
+  --json
+```
+
+The report makes loader semantics reviewable instead of treating every discovered
+file as equally active:
+
+- Codex `AGENTS.override.md` replacement and inherited instruction bytes
+- Codex profile and `skills.config` enabled/disabled state
+- Claude project-memory ambiguity and in-workspace `@import` chains
+- provider-version coverage, including explicit partial and unreviewed boundaries
+
+`audit --json` has a versioned CI contract with a schema version, tool version,
+sorted ruleset IDs, and stable/deprecated finding-ID states. See the
+[audit JSON contract](./docs/AUDIT_JSON_CONTRACT.md) and
+[GitHub Action guide](./docs/GITHUB_ACTION.md).
+
+## Scan skills and MCP servers
 
 ```bash
 npx skillvet ./my-skill
@@ -28,11 +61,7 @@ npm i -D skillvet
 npx skillvet ./my-skill --strict
 ```
 
-## Audit a workspace instruction stack
-
-`scan` remains the package supply-chain scanner. `audit` is a separate, local-only
-workspace command: it reports Claude Code load surfaces/configured hooks and the
-Codex `AGENTS.md` hierarchy without downloading or executing workspace content.
+## Audit evidence and boundaries
 
 The instruction ledger makes startup-context work measurable instead of deleting prose
 blindly:
@@ -48,22 +77,6 @@ blindly:
 
 The workspace target is the project boundary for this measurement. Audit the Codex home
 separately to inspect its global layer and configured instruction cap.
-
-For an interactive local audit, opt in to version detection:
-
-```bash
-npx skillvet audit . --detect-provider-version
-```
-
-For CI, declare the exact installed version instead. This makes the report reproducible
-and makes review coverage a deliberate gate:
-
-```bash
-npx skillvet audit . \
-  --provider claude-code@<version> \
-  --fail-on=security \
-  --require-reviewed
-```
 
 Use the documented Codex default only as an explicit measurement assumption; override
 it when the active configuration differs:

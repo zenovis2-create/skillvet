@@ -1,0 +1,3 @@
+# These fixtures assert exact injected and raw byte counts.
+test/fixtures/audit-contract/** text eol=lf
+test/fixtures/conformance/** text eol=lf
